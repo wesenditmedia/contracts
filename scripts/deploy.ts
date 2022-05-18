@@ -3,7 +3,7 @@ import { ethers } from "hardhat";
 async function main() {
   const Token = await ethers.getContractFactory("WeSenditToken");
   const token = await Token.deploy(
-    '0x0'
+    '0x000000000000000000000000000000000000dEaD'
   );
 
   await token.deployed();

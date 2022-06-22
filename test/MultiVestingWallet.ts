@@ -11,9 +11,6 @@ xdescribe("MultiVestingWallet", function () {
   let carlos: any;
   let addrs: any;
 
-  const TGE_AMOUNT = ethers.utils.parseEther('37500000');
-  const INITIAL_SUPPLY = ethers.utils.parseEther('1462500000');
-
   beforeEach(async function () {
     const MultiVestingWallet = await ethers.getContractFactory("MultiVestingWallet");
     [owner, alice, bob, carlos, ...addrs] = await ethers.getSigners();

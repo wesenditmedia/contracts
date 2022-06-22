@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Capped.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "./IStakingPool.sol";
 
 contract WeSenditToken is ERC20, ERC20Capped, ERC20Burnable, Ownable {
     using SafeMath for uint256;
@@ -22,6 +23,9 @@ contract WeSenditToken is ERC20, ERC20Capped, ERC20Burnable, Ownable {
     address public stakingPoolAddress = address(0);
 
     bool public feesEnabled = true;
+    bool public pauseEnabled = false;
+    bool public stakingPoolCallbackEnabled = false;
+
     uint256 public minTxAmount = 0;
 
     constructor(address tgeWallet)
@@ -56,6 +60,14 @@ contract WeSenditToken is ERC20, ERC20Capped, ERC20Burnable, Ownable {
         feesEnabled = value;
     }
 
+    function setPauseEnabled(bool value) external onlyOwner {
+        pauseEnabled = value;
+    }
+
+    function setStakingPoolCallbackEnabled(bool value) external onlyOwner {
+        stakingPoolCallbackEnabled = value;
+    }
+
     function distributeSaleToken(
         address seedSaleWallet,
         address privateSaleWallet
@@ -74,8 +86,7 @@ contract WeSenditToken is ERC20, ERC20Capped, ERC20Burnable, Ownable {
         address exchangeAndLiquidityWallet,
         address stakingRewardsWallet,
         address activityRewardsWallet,
-        address airdropWallet,
-        address generalReserveWallet
+        address airdropWallet
     ) external onlyOwner {
         _transfer(address(this), teamWallet, 180000000 * 1 ether); // 12%
         _transfer(address(this), advisorsWallet, 75000000 * 1 ether); // 5%
@@ -91,6 +102,11 @@ contract WeSenditToken is ERC20, ERC20Capped, ERC20Burnable, Ownable {
         _transfer(address(this), stakingRewardsWallet, 120000000 * 1 ether); // 8%
         _transfer(address(this), activityRewardsWallet, 45000000 * 1 ether); // 3%
         _transfer(address(this), airdropWallet, 45000000 * 1 ether); // 3%
+    }
+
+    function distributeReserveToken(
+        address generalReserveWallet
+    ) external onlyOwner {
         _transfer(address(this), generalReserveWallet, 52500000 * 1 ether); // 3.5%
     }
 
@@ -105,10 +121,15 @@ contract WeSenditToken is ERC20, ERC20Capped, ERC20Burnable, Ownable {
             "WeSendit: amount is less than minTxAmount"
         );
 
-        address owner = _msgSender();
-        uint256 tTotal = _reflectFees(owner, to, amount);
+        address sender = _msgSender();
+        require(
+            sender == owner() || !pauseEnabled,
+            "WeSendit: transactions are paused"
+        );
 
-        _transfer(owner, to, tTotal);
+        uint256 tTotal = _reflectFees(sender, to, amount);
+
+        _transfer(sender, to, tTotal);
 
         return true;
     }
@@ -121,6 +142,11 @@ contract WeSenditToken is ERC20, ERC20Capped, ERC20Burnable, Ownable {
         require(
             amount >= minTxAmount,
             "WeSendit: amount is less than minTxAmount"
+        );
+
+        require(
+            from == owner() || !pauseEnabled,
+            "WeSendit: transactions are paused"
         );
 
         address spender = _msgSender();
@@ -139,6 +165,10 @@ contract WeSenditToken is ERC20, ERC20Capped, ERC20Burnable, Ownable {
         uint256 amount
     ) internal returns (uint256 _tTotal) {
         if (!feesEnabled) {
+            return amount;
+        }
+
+        if (from == owner()) {
             return amount;
         }
 
@@ -163,6 +193,13 @@ contract WeSenditToken is ERC20, ERC20Capped, ERC20Burnable, Ownable {
             if (stakingPoolAddress != address(0)) {
                 tFeeStakingPool = tTotal.mul(15).div(1000); // 1.5%
                 _transfer(from, stakingPoolAddress, tFeeStakingPool);
+
+                if (stakingPoolCallbackEnabled) {
+                    IStakingPool(stakingPoolAddress).onERC20Received(
+                        from,
+                        tFeeStakingPool
+                    );
+                }
             }
 
             tTotal = tTotal.sub(tFeeActivityPool).sub(tFeeReferralPool).sub(

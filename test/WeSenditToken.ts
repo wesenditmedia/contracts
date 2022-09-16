@@ -1,34 +1,43 @@
-import { BigNumber } from "ethers";
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
-const { expect } = require("chai");
-const { ethers } = require('hardhat')
+import { ethers } from 'hardhat'
+import { expect } from 'chai'
+import { MockERC20, MockPancakeRouter, MockPancakeRouter__factory, MockStakingPool, WeSenditToken } from "../typechain";
+import { parseEther } from "ethers/lib/utils";
+import { MockContract, smock } from '@defi-wonderland/smock';
 
 describe("WeSendit", function () {
-  let token: any;;
-  let owner: any;
-  let tge: any;
-  let alice: any;
-  let bob: any;
-  let charlie: any;
-  let fees: any;
-  let addrs: any;
-  let mockStakingPool: any;
+  let token: WeSenditToken;;
+  let mockBnb: MockERC20
+  let mockPancakeRouter: MockContract<MockPancakeRouter>;
+  let owner: SignerWithAddress;
+  let alice: SignerWithAddress;
+  let bob: SignerWithAddress;
+  let charlie: SignerWithAddress;
+  let supply: SignerWithAddress
+  let mockStakingPool: MockStakingPool
+  let addrs: SignerWithAddress[];
 
-  const TGE_AMOUNT = ethers.utils.parseEther('37500000');
-  const INITIAL_SUPPLY = ethers.utils.parseEther('1462500000');
+  let ADMIN_ROLE: string
+  let FEE_WHITELIST_ROLE: string
+  let BYPASS_PAUSE_ROLE: string
+  let RECEIVER_FEE_WHITELIST_ROLE: string
+  let BYPASS_SWAP_AND_LIQUIFY_ROLE: string
 
-  const SEED_AMOUNT = ethers.utils.parseEther('75000000')
-  const PRIVATE_AMOUNT = ethers.utils.parseEther('120000000')
+  const INITIAL_SUPPLY = parseEther('37500000');
+  const TOTAL_SUPPLY = parseEther('1500000000');
 
   beforeEach(async function () {
     const WeSenditToken = await ethers.getContractFactory("WeSenditToken");
-    [owner, alice, bob, charlie, tge, fees, ...addrs] = await ethers.getSigners();
+    [owner, alice, bob, charlie, supply, ...addrs] = await ethers.getSigners();
 
-    token = await WeSenditToken.deploy(tge.address);
+    token = await WeSenditToken.deploy(supply.address);
 
-    await token.setActivityPoolAddress(fees.address)
-    await token.setReferralPoolAddress(fees.address)
-    await token.setStakingPoolAddress(fees.address)
+    ADMIN_ROLE = await token.ADMIN()
+    FEE_WHITELIST_ROLE = await token.FEE_WHITELIST()
+    BYPASS_PAUSE_ROLE = await token.BYPASS_PAUSE()
+    RECEIVER_FEE_WHITELIST_ROLE = await token.RECEIVER_FEE_WHITELIST()
+    BYPASS_SWAP_AND_LIQUIFY_ROLE = await token.BYPASS_SWAP_AND_LIQUIFY()
   });
 
   describe("Deployment", function () {
@@ -36,427 +45,467 @@ describe("WeSendit", function () {
       expect(await token.owner()).to.equal(owner.address);
     });
 
-    it("should assign supply to TGE wallet and contract", async function () {
-      const tgeBalance = await token.balanceOf(tge.address);
-      expect(tgeBalance).to.equal(TGE_AMOUNT);
-
-      const contractBalance = await token.balanceOf(token.address);
-      expect(contractBalance).to.equal(INITIAL_SUPPLY);
+    it("should assign total supply to wallet", async function () {
+      const balance = await token.balanceOf(supply.address);
+      expect(balance).to.equal(TOTAL_SUPPLY);
     });
+
+    it("should assign correct initial values", async function () {
+      expect(await token.initialSupply()).to.equal(INITIAL_SUPPLY);
+      expect(await token.paused()).to.equal(false);
+      expect(await token.pancakeRouter()).to.be.properAddress;
+      expect(await token.swapAndLiquifyEnabled()).to.equal(false);
+      expect(await token.swapAndLiquifyBalance()).to.equal(0);
+      expect(await token.feesEnabled()).to.equal(false);
+    })
+
+    it("should assign correct roles to creator", async function () {
+      expect(await token.hasRole(ADMIN_ROLE, owner.address)).to.equal(true)
+
+      expect(await token.getRoleAdmin(ADMIN_ROLE)).to.equal(ADMIN_ROLE)
+      expect(await token.getRoleAdmin(FEE_WHITELIST_ROLE)).to.equal(ADMIN_ROLE)
+      expect(await token.getRoleAdmin(BYPASS_PAUSE_ROLE)).to.equal(ADMIN_ROLE)
+      expect(await token.getRoleAdmin(RECEIVER_FEE_WHITELIST_ROLE)).to.equal(ADMIN_ROLE)
+    })
   });
 
-  describe('Distribution', function () {
-    it('should correctly distribute seed and private sale tokens', async function () {
-      const seedWallet = addrs[0]
-      const privateWallet = addrs[1]
+  describe("Dynamic Fee System", function () {
+    describe('Setup', function () {
+      it('should add fee as owner', async function () {
+        const res = await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, addrs[0].address)
 
-      await token.distributeSaleToken(seedWallet.address, privateWallet.address)
+        expect(res.value).to.equal(0)
+      })
 
-      const seedBalance = await token.balanceOf(seedWallet.address)
-      expect(seedBalance).to.equal(SEED_AMOUNT);
+      it('should fail to add fee as non-owner', async function () {
+        await expect(
+          token.connect(alice).addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, addrs[0].address)
+        ).to.be.reverted
+      })
 
-      const privateBalance = await token.balanceOf(privateWallet.address)
-      expect(privateBalance).to.equal(PRIVATE_AMOUNT);
+      it('should get fee at index', async function () {
+        // Arrange
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, addrs[0].address)
+
+        // Assert
+        const fee = await token.getFee(0)
+        expect(fee.from).to.equal(ethers.constants.AddressZero)
+        expect(fee.to).to.equal(ethers.constants.AddressZero)
+        expect(fee.percentage).to.equal(5000)
+        expect(fee.destination).to.equal(addrs[0].address)
+      })
+
+      it('should remove fee at index as owner', async function () {
+        // Arrange
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, addrs[0].address)
+
+        // Assert
+        await token.removeFee(0)
+      })
+
+      it('should fail to remove fee at index as non-owner', async function () {
+        // Arrange
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, addrs[0].address)
+
+        // Assert
+        await expect(token.connect(alice).removeFee(0)).to.be.reverted
+      })
+
+      it('should fail to remove fee at non existing index', async function () {
+        // Assert
+        await expect(token.removeFee(0)).to.be.reverted
+      })
+
+      it('should remove fee if multiple fees added', async function () {
+        // Arrange
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 1, addrs[0].address)
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 2, addrs[0].address)
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 3, addrs[0].address)
+
+        // Assert
+        const feeBefore = await token.getFee(1)
+        expect(feeBefore.percentage).to.equal(2)
+
+        // Act
+        await token.removeFee(1)
+
+        // Assert
+        const feeAfter = await token.getFee(1)
+        expect(feeAfter.percentage).to.equal(3)
+        await expect(token.getFee(2)).to.be.reverted
+      })
     })
 
-    it('should correctly distribute rest of tokens', async function () {
-      const wallets = addrs.slice(0, 10)
-      const expectedBalances = [
-        180000000,
-        75000000,
-        75000000,
-        225000000,
-        180000000,
-        150000000,
-        120000000,
-        120000000,
-        45000000,
-        45000000
-      ]
+    describe('Transfers', function () {
+      beforeEach(async function () {
+        await token.connect(supply).transfer(alice.address, parseEther('100'))
+        await token.setFeesEnabled(true)
+      })
 
-      await token.distributeToken(...wallets.map((wallet: any) => wallet.address))
+      it('should apply single fees on transfer', async function () {
+        // Arrange
+        const feeAddress = addrs[0].address
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, feeAddress)
 
-      for (let i = 0; i < wallets.length; i++) {
-        const wallet = wallets[i]
-        const expectedBalance = ethers.utils.parseEther(expectedBalances[i].toString())
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(0)
 
-        const actualBalance = await token.balanceOf(wallet.address)
-        expect(actualBalance).to.equal(expectedBalance)
-      }
+        // Act
+        await token.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(parseEther('5'))
+        expect(await token.balanceOf(bob.address)).to.equal(parseEther('95'))
+      })
+
+      it('should apply multiple fees on transfer', async function () {
+        // Arrange
+        const feeAddress = addrs[0].address
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, feeAddress)
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 2500, feeAddress)
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(0)
+
+        // Act
+        await token.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(parseEther('7.5'))
+        expect(await token.balanceOf(bob.address)).to.equal(parseEther('92.5'))
+      })
+
+      it('should only apply relevant fees (1)', async function () {
+        // Arrange
+        const feeAddress = addrs[0].address
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, feeAddress)
+        await token.addFee(bob.address, alice.address, 2500, feeAddress)
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(0)
+
+        // Act
+        await token.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(parseEther('5'))
+        expect(await token.balanceOf(bob.address)).to.equal(parseEther('95'))
+      })
+
+      it('should only apply relevant fees (2)', async function () {
+        // Arrange
+        const feeAddress = addrs[0].address
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, feeAddress)
+        await token.addFee(alice.address, bob.address, 2500, feeAddress)
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(0)
+
+        // Act
+        await token.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(parseEther('7.5'))
+        expect(await token.balanceOf(bob.address)).to.equal(parseEther('92.5'))
+      })
+
+      it('should only apply relevant fees (3)', async function () {
+        // Arrange
+        const feeAddress = addrs[0].address
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, feeAddress)
+        await token.addFee(bob.address, alice.address, 2500, feeAddress)
+        await token.addFee(alice.address, ethers.constants.AddressZero, 10000, feeAddress)
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(0)
+
+        // Act
+        await token.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(parseEther('15'))
+        expect(await token.balanceOf(bob.address)).to.equal(parseEther('85'))
+      })
+
+      it('should not apply fees if owner', async function () {
+        // Arrange
+        const feeAddress = addrs[0].address
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, feeAddress)
+        await token.transferOwnership(alice.address)
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(0)
+
+        // Act
+        await token.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(parseEther('0'))
+        expect(await token.balanceOf(bob.address)).to.equal(parseEther('100'))
+      })
+
+      it('should not apply fees if admin', async function () {
+        // Arrange
+        const feeAddress = addrs[0].address
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, feeAddress)
+        await token.grantRole(ADMIN_ROLE, alice.address)
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(0)
+
+        // Act
+        await token.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(parseEther('0'))
+        expect(await token.balanceOf(bob.address)).to.equal(parseEther('100'))
+      })
+
+      it('should not apply fees if on whitelist', async function () {
+        // Arrange
+        const feeAddress = addrs[0].address
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, feeAddress)
+        await token.grantRole(FEE_WHITELIST_ROLE, alice.address)
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(0)
+
+        // Act
+        await token.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(parseEther('0'))
+        expect(await token.balanceOf(bob.address)).to.equal(parseEther('100'))
+      })
+
+      it('should not apply fees if receiver is on whitelist', async function () {
+        // Arrange
+        const feeAddress = addrs[0].address
+        await token.addFee(ethers.constants.AddressZero, ethers.constants.AddressZero, 5000, feeAddress)
+        await token.grantRole(RECEIVER_FEE_WHITELIST_ROLE, bob.address)
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(0)
+
+        // Act
+        await token.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(await token.balanceOf(feeAddress)).to.equal(parseEther('0'))
+        expect(await token.balanceOf(bob.address)).to.equal(parseEther('100'))
+      })
     })
 
-    it('should correctly distribute reserve tokens', async function () {
-      const wallets = addrs.slice(0, 1)
-      const expectedBalances = [
-        52500000
-      ]
+    describe('Staking Pool Callback', function () {
+      beforeEach(async function () {
+        const MockStakingPool = await ethers.getContractFactory('MockStakingPool')
+        mockStakingPool = await MockStakingPool.deploy()
 
-      await token.distributeReserveToken(...wallets.map((wallet: any) => wallet.address))
+        await token.connect(supply).transfer(alice.address, parseEther('100'))
+        await token.setStakingPoolAddress(mockStakingPool.address)
+        await token.setFeesEnabled(true)
+      })
 
-      for (let i = 0; i < wallets.length; i++) {
-        const wallet = wallets[i]
-        const expectedBalance = ethers.utils.parseEther(expectedBalances[i].toString())
+      it('should call staking pool callback if disabled', async function () {
+        // Arrange
+        await token.setStakingPoolAddress(ethers.constants.AddressZero)
+        await token.addFee(ethers.constants.AddressZero, mockStakingPool.address, 50000, mockStakingPool.address)
 
-        const actualBalance = await token.balanceOf(wallet.address)
-        expect(actualBalance).to.equal(expectedBalance)
-      }
+        // Act & Assert
+        await expect(token.connect(alice).transfer(bob.address, parseEther('10'))).to.not.emit(
+          mockStakingPool,
+          'ERC20Received'
+        )
+      })
+
+      it('should call staking pool callback if enabled', async function () {
+        // Arrange
+        await token.addFee(ethers.constants.AddressZero, mockStakingPool.address, 50000, mockStakingPool.address)
+
+        // Act & Assert
+        await expect(token.connect(alice).transfer(bob.address, parseEther('10'))).to.emit(
+          mockStakingPool,
+          'ERC20Received'
+        ).withArgs(alice.address, parseEther('5'))
+      })
     })
   })
 
-  describe("Fees", function () {
+  describe('Swap And Liquify', function () {
     beforeEach(async function () {
-      await token.distributeSaleToken(owner.address, owner.address)
-      await token.transfer(
-        alice.address,
-        ethers.utils.parseEther('10000')
+      const MockERC20 = await ethers.getContractFactory('MockERC20')
+      mockBnb = await MockERC20.deploy()
+
+      const MockPancakeRouter = await smock.mock<MockPancakeRouter__factory>('MockPancakeRouter')
+      mockPancakeRouter = await MockPancakeRouter.deploy(mockBnb.address)
+
+      await token.setPancakeRouter(mockPancakeRouter.address)
+      await token.connect(supply).transfer(alice.address, parseEther('100'))
+      await token.setSwapAndLiquifyBalance(parseEther('11'))
+      await token.setSwapAndLiquifyEnabled(true)
+      await token.setFeesEnabled(true)
+    })
+
+    it('should not swap and liquify before total token amount is reached', async function () {
+      // Arrange
+      await token.addFee(alice.address, bob.address, 50000, token.address)
+
+      // Assert
+      expect(await token.balanceOf(token.address)).to.equal(0)
+
+      // Act
+      await token.connect(alice).transfer(bob.address, parseEther('20'))
+
+      // Assert
+      expect(await token.balanceOf(token.address)).to.equal(parseEther('10'))
+    })
+
+    it('should not swap and liquify if sender has bypass role', async function () {
+      // Arrange
+      await token.addFee(alice.address, bob.address, 75000, token.address)
+      await token.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, alice.address)
+
+      // Assert
+      expect(await token.balanceOf(token.address)).to.equal(0)
+
+      // Act
+      await token.connect(alice).transfer(bob.address, parseEther('20'))
+
+      // Assert
+      expect(await token.balanceOf(token.address)).to.equal(parseEther('15'))
+    })
+
+    it('should swap and liquify if total token amount is reached', async function () {
+      // Arrange
+      await token.addFee(alice.address, bob.address, 75000, token.address)
+
+      // Assert
+      expect(await token.balanceOf(token.address)).to.equal(0)
+
+      // Act
+      await token.connect(alice).transfer(bob.address, parseEther('20'))
+
+      // Assert
+      mockPancakeRouter.addLiquidityETH.atCall(0).should.be.calledWithValue(
+        parseEther('1')
       )
-    })
-
-    it('should charge fee on transfer', async function () {
-      await token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('1')
-      );
-
-      const balance = await token.balanceOf(bob.address);
-      expect(balance).to.equal(
-        ethers.utils.parseEther('0.97')
-      );
-
-      const feesBalance = await token.balanceOf(fees.address)
-      expect(feesBalance).to.equal(
-        ethers.utils.parseEther('0.03')
-      );
-    })
-
-    it('should charge fees on transferFrom', async function () {
-      await token.connect(alice).approve(
-        bob.address,
-        ethers.utils.parseEther('1')
+      mockPancakeRouter.addLiquidityETH.atCall(0).should.be.calledWith(
+        token.address,
+        parseEther('10'),
+        0,
+        0,
+        owner.address
       )
-
-      const allowanceBefore = await token.allowance(
-        alice.address,
-        bob.address
-      )
-      expect(allowanceBefore).to.equal(
-        ethers.utils.parseEther('1')
-      );
-
-      await token.connect(bob).transferFrom(
-        alice.address,
-        charlie.address,
-        ethers.utils.parseEther('1')
-      );
-
-      const balance = await token.balanceOf(charlie.address);
-      expect(balance).to.equal(
-        ethers.utils.parseEther('0.97')
-      );
-
-      const feesBalance = await token.balanceOf(fees.address)
-      expect(feesBalance).to.equal(
-        ethers.utils.parseEther('0.03')
-      );
-
-      const allowanceAfter = await token.allowance(
-        alice.address,
-        bob.address
-      )
-      expect(allowanceAfter).to.equal(
-        ethers.utils.parseEther('0')
-      );
-    })
-
-    it('should not charge fee if sender is owner', async function () {
-      await token.transfer(
-        bob.address,
-        ethers.utils.parseEther('1')
-      );
-
-      const balance = await token.balanceOf(bob.address);
-      expect(balance).to.equal(
-        ethers.utils.parseEther('1')
-      );
-
-      const feesBalance = await token.balanceOf(fees.address)
-      expect(feesBalance).to.equal(
-        ethers.utils.parseEther('0')
-      );
-    })
-
-    it('should not charge fee if addresses are not set', async function () {
-      await token.setActivityPoolAddress(ethers.constants.AddressZero)
-      await token.setReferralPoolAddress(ethers.constants.AddressZero)
-      await token.setStakingPoolAddress(ethers.constants.AddressZero)
-      await token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('1')
-      );
-
-      const balance = await token.balanceOf(bob.address);
-      expect(balance).to.equal(
-        ethers.utils.parseEther('1')
-      );
-
-      const feesBalance = await token.balanceOf(fees.address)
-      expect(feesBalance).to.equal(
-        ethers.utils.parseEther('0')
-      );
-    })
-
-    it('should not charge fee if they`re disabled', async function () {
-      await token.setFeesEnabled(false)
-      await token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('1')
-      );
-
-      const balance = await token.balanceOf(bob.address);
-      expect(balance).to.equal(
-        ethers.utils.parseEther('1')
-      );
-
-      const feesBalance = await token.balanceOf(fees.address)
-      expect(feesBalance).to.equal(
-        ethers.utils.parseEther('0')
-      );
+      expect(await token.balanceOf(token.address)).to.equal(parseEther('15'))
     })
   })
 
-  describe("Transactions", function () {
+  describe('Minimum TX Amount', function () {
     beforeEach(async function () {
-      await token.distributeSaleToken(owner.address, owner.address)
-      await token.transfer(
-        alice.address,
-        ethers.utils.parseEther('10000')
-      )
+      await token.connect(supply).transfer(alice.address, parseEther('100'))
+      await token.setMinTxAmount(parseEther('10'))
     })
 
-    it('should transfer tokens and charge fee (0.01)', async function () {
-      await token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('0.01')
-      );
-
-      const balance = await token.balanceOf(bob.address);
-      expect(balance).to.equal(
-        ethers.utils.parseEther('0.0097')
-      );
-
-      const feesBalance = await token.balanceOf(fees.address)
-      expect(feesBalance).to.equal(
-        ethers.utils.parseEther('0.0003')
-      );
-    })
-
-    it('should transfer tokens and charge fee (100)', async function () {
-      await token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('100')
-      );
-
-      const balance = await token.balanceOf(bob.address);
-      expect(balance).to.equal(
-        ethers.utils.parseEther('97')
-      );
-
-      const feesBalance = await token.balanceOf(fees.address)
-      expect(feesBalance).to.equal(
-        ethers.utils.parseEther('3')
-      );
-    })
-
-    it('should transfer tokens and charge fee (1000)', async function () {
-      await token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('1000')
-      );
-
-      const balance = await token.balanceOf(bob.address);
-      expect(balance).to.equal(
-        ethers.utils.parseEther('970')
-      );
-
-      const feesBalance = await token.balanceOf(fees.address)
-      expect(feesBalance).to.equal(
-        ethers.utils.parseEther('30')
-      );
-    })
-
-    it('should transfer tokens and charge fee (10000)', async function () {
-      await token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('10000')
-      );
-
-      const balance = await token.balanceOf(bob.address);
-      expect(balance).to.equal(
-        ethers.utils.parseEther('9700')
-      );
-
-      const feesBalance = await token.balanceOf(fees.address)
-      expect(feesBalance).to.equal(
-        ethers.utils.parseEther('300')
-      );
-    })
-
-    it('should transfer tokens to Pancake Router and charge no fee', async function () {
-      await token.connect(alice).transfer(
-        '0x10ED43C718714eb63d5aA57B78B54704E256024E',
-        ethers.utils.parseEther('10000')
-      );
-
-      const balance = await token.balanceOf('0x10ED43C718714eb63d5aA57B78B54704E256024E');
-      expect(balance).to.equal(
-        ethers.utils.parseEther('10000')
-      );
-
-      const feesBalance = await token.balanceOf(fees.address)
-      expect(feesBalance).to.equal(
-        ethers.utils.parseEther('0')
-      );
-    })
-
-    it("Should fail if sender doesn`t have enough tokens", async function () {
-      const initialOwnerBalance = await token.balanceOf(owner.address);
+    it("should transfer if minTxAmount is less than transfer amount", async function () {
+      // Act
       await expect(
-        token.connect(bob).transfer(owner.address, 1)
-      ).to.be.revertedWith("ERC20: transfer amount exceeds balance");
+        token.connect(alice).transfer(bob.address, parseEther('10'))
+      ).to.not.be.reverted
 
-      // Owner balance shouldn't have changed.
-      expect(await token.balanceOf(owner.address)).to.equal(
-        initialOwnerBalance
-      );
+      // Assert
+      expect(await token.balanceOf(bob.address)).to.equal(parseEther('10'))
     });
 
-    it("Should update balances after transfers", async function () {
-      const initialSenderBalance = await token.balanceOf(alice.address);
-
-      await token.connect(alice).transfer(bob.address, ethers.utils.parseEther('100'));
-      await token.connect(alice).transfer(charlie.address, ethers.utils.parseEther('50'));
-
-      const finalSenderBalance = await token.balanceOf(alice.address);
-      expect(finalSenderBalance).to.equal(initialSenderBalance.sub(ethers.utils.parseEther('150')));
-
-      const addr1Balance = await token.balanceOf(bob.address);
-      expect(addr1Balance).to.equal(ethers.utils.parseEther('97'));
-
-      const addr2Balance = await token.balanceOf(charlie.address);
-      expect(addr2Balance).to.equal(ethers.utils.parseEther('48.5'));
-    });
-  });
-
-  describe('minTxAmount', function () {
-    beforeEach(async function () {
-      await token.distributeSaleToken(owner.address, owner.address)
-      await token.setFeesEnabled(false)
-
-      await token.setMinTxAmount(ethers.utils.parseEther('0.1'))
-    })
-
-    it("Should transfer if minTxAmount is less than transfer amount", async function () {
-      await token.transfer(
-        alice.address,
-        ethers.utils.parseEther('0.111')
-      )
-
-      expect(await token.balanceOf(alice.address)).to.equal(
-        ethers.utils.parseEther('0.111')
-      );
-    });
-
-    it("Should fail if minTxAmount is greater than transfer amount", async function () {
-      const initialOwnerBalance = await token.balanceOf(owner.address);
-      await expect(token.transfer(
-        alice.address,
-        ethers.utils.parseEther('0.0999')
-      )).to.be.revertedWith("WeSendit: amount is less than minTxAmount");
-
-      expect(await token.balanceOf(owner.address)).to.equal(
-        initialOwnerBalance
-      );
-    });
-  })
-
-  describe('Withdraw', function () {
-    it('Should withdraw all tokens if caller is owner', async function () {
-      const tokenBalance = await token.balanceOf(token.address)
-
-      await token.emergencyWithdraw(alice.address)
-
-      const aliceBalance = await token.balanceOf(alice.address)
-      expect(aliceBalance).to.equal(tokenBalance)
-    })
-
-    it('Should fail if caller isn`t owner', async function () {
+    it("should fail if minTxAmount is greater than transfer amount", async function () {
+      // Act & Assert
       await expect(
-        token.connect(alice).emergencyWithdraw(alice.address)
-      ).to.be.revertedWith('Ownable: caller is not the owner')
-    })
+        token.connect(alice).transfer(bob.address, parseEther('9'))
+      ).to.be.revertedWith('WeSendit: amount is less than minTxAmount')
+    });
   })
 
-  describe('Pausing', function () {
+  describe('Transaction Pausing', function () {
     beforeEach(async function () {
-      await token.distributeSaleToken(owner.address, owner.address)
+      await token.connect(supply).transfer(alice.address, parseEther('100'))
+      await token.setPaused(true)
     })
 
-    it('Should pause all transactions except from owner -> x', async function () {
-      await token.setFeesEnabled(false)
-      await token.setPauseEnabled(true)
+    it('should pause all normal transactions', async function () {
+      // Act & Assert
+      await expect(
+        token.connect(alice).transfer(bob.address, parseEther('9'))
+      ).to.be.revertedWith('WeSendit: transactions are paused')
+    })
 
-      await token.transfer(
-        alice.address,
-        ethers.utils.parseEther('1')
-      )
+    it('should bypass pause if owner', async function () {
+      // Arrage
+      token.transferOwnership(alice.address)
 
-      const aliceBalance = await token.balanceOf(alice.address)
-      expect(aliceBalance).to.equal(ethers.utils.parseEther('1'))
+      // Act & Assert
+      await expect(
+        token.connect(alice).transfer(bob.address, parseEther('9'))
+      ).to.not.be.reverted
+    })
 
-      await expect(token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('1')
-      )).to.be.revertedWith('WeSendit: transactions are paused')
+    it('should bypass pause if admin', async function () {
+      // Arrange
+      token.grantRole(ADMIN_ROLE, alice.address)
+
+      // Act & Assert
+      await expect(
+        token.connect(alice).transfer(bob.address, parseEther('9'))
+      ).to.not.be.reverted
+    })
+
+    it('should bypass pause if pause bypass role', async function () {
+      // Arrange
+      token.grantRole(BYPASS_PAUSE_ROLE, alice.address)
+
+      // Act & Assert
+      await expect(
+        token.connect(alice).transfer(bob.address, parseEther('9'))
+      ).to.not.be.reverted
     })
   })
 
-  describe('Staking Pool', function () {
+  describe('Emergency Withdraw', function () {
     beforeEach(async function () {
-      await token.distributeSaleToken(alice.address, alice.address)
-
-      const MockStakingPool = await ethers.getContractFactory("MockStakingPool");
-      mockStakingPool = await MockStakingPool.deploy();
-
-      await token.setStakingPoolAddress(mockStakingPool.address)
+      await token.connect(supply).transfer(token.address, parseEther('100'))
     })
 
-    it('Shouldn`t emit event as callback if default (disabled)', async function () {
-      await expect(token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('1')
-      )).to.not
-        .emit(mockStakingPool, 'ERC20Received')
+    it('should withdraw all token', async function () {
+      // Assert
+      expect(await token.balanceOf(token.address)).to.equal(parseEther('100'))
+
+      // Act
+      await expect(
+        token.emergencyWithdrawToken(parseEther('100'))
+      ).to.not.be.reverted
+
+      // Assert
+      expect(await token.balanceOf(owner.address)).to.equal(parseEther('100'))
+      expect(await token.balanceOf(token.address)).to.equal(parseEther('0'))
     })
 
-    it('Should emit event as callback if enabled', async function () {
-      await token.setStakingPoolCallbackEnabled(true)
+    it('should withdraw custom amount token', async function () {
+      // Assert
+      expect(await token.balanceOf(token.address)).to.equal(parseEther('100'))
 
-      await expect(token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('1')
-      )).to
-        .emit(mockStakingPool, 'ERC20Received')
-        .withArgs(alice.address, ethers.utils.parseEther('0.015'))
+      // Act
+      await expect(
+        token.emergencyWithdrawToken(parseEther('10'))
+      ).to.not.be.reverted
+
+      // Assert
+      expect(await token.balanceOf(owner.address)).to.equal(parseEther('10'))
+      expect(await token.balanceOf(token.address)).to.equal(parseEther('90'))
     })
 
-    it('Shouldn`t emit event as callback if disabled', async function () {
-      await token.setStakingPoolCallbackEnabled(false)
-
-      await expect(token.connect(alice).transfer(
-        bob.address,
-        ethers.utils.parseEther('1')
-      )).to.not
-        .emit(mockStakingPool, 'ERC20Received')
+    it('should fail on withdraw if caller is non-owner', async function () {
+      await expect(
+        token.connect(alice).emergencyWithdrawToken(parseEther('100'))
+      ).to.be.reverted
     })
   })
+
 });

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./IStakingPool.sol";
+import "./interfaces/IStakingPool.sol";
 
 contract MockStakingPool is IStakingPool {
     event ERC20Received(address from, uint256 amount);

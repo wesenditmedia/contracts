@@ -3,14 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./IPancakeRouter.sol";
-
-struct FeeEntry {
-    address from;
-    address to;
-    uint256 percentage;
-    address destination;
-    // bool callbackEnabled
-}
+import "./IDynamicFeeManager.sol";
 
 interface IWeSenditToken {
     /**
@@ -23,9 +16,7 @@ interface IWeSenditToken {
     event SwapAndLiquifyBalanceUpdated(uint256 value);
     event SwapAndLiquify(uint256 firstHalf, uint256 newBalance, uint256 secondHalf);
     event FeeEnabledUpdated(bool enabled);
-    event StakingPoolAddressUpdated(address newAddress);
-    event FeeAdded(address from, address to, uint256 percentage, address destination);
-    event FeeRemoved(uint256 index);
+    event DynamicFeeManagerUpdated(address newAddress);
     event EmergencyWithdraw(address receiver, uint256 amount);
     event EmergencyWithdrawToken(address receiver, uint256 amount);
 
@@ -63,20 +54,9 @@ interface IWeSenditToken {
 
     function setFeesEnabled(bool value) external;
 
-    function getFee(uint256 index) external view returns (FeeEntry memory fee);
+    function dynamicFeeManager() external view returns (IDynamicFeeManager);
 
-    function addFee(
-        address from,
-        address to,
-        uint256 percentage,
-        address destination
-    ) external returns (uint256 index);
-
-    function removeFee(uint256 index) external;
-
-    function stakingPoolAddress() external view returns (address);
-
-    function setStakingPoolAddress(address value) external;
+    function setDynamicFeeManager(address value) external;
 
     /**
      * Emergency withdraw

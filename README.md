@@ -2,11 +2,6 @@
 
 This repository contains the necessarry smart contracts for the WeSendit crypto project.
 
-## TODO
-
-- [x] Basic token
-- [ ] Transaction fees
-
 ## Deployment
 
 ```shell

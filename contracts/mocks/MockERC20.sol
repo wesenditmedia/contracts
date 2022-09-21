@@ -11,6 +11,6 @@ contract MockERC20 is ERC20, Ownable {
     using SafeMath for uint256;
 
     constructor() ERC20("MockERC20", "MERC20") {
-        _mint(_msgSender(), 1 ether);
+        _mint(_msgSender(), 100 ether);
     }
 }

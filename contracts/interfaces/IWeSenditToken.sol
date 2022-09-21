@@ -2,66 +2,100 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./IPancakeRouter.sol";
 import "./IDynamicFeeManager.sol";
 
 interface IWeSenditToken {
     /**
-     * Events
+     * Emitted on minimum transaction amount update
+     * 
+     * @param minTxAmount uint256 - New minimum transaction amount
      */
     event MinTxAmountUpdated(uint256 minTxAmount);
+
+    /**
+     * Emitted on transaction pause update
+     * 
+     * @param paused bool - Indicates if the transactions are paused now
+     */
     event PausedUpdated(bool paused);
-    event PancakeRouterUpdated(address newAddress);
-    event SwapAndLiquifyEnabledUpdated(bool enabled);
-    event SwapAndLiquifyBalanceUpdated(uint256 value);
-    event SwapAndLiquify(uint256 firstHalf, uint256 newBalance, uint256 secondHalf);
+
+    /**
+     * Emitted on fee state update
+     * 
+     * @param enabled bool - Indicates if fees are enabled now
+     */
     event FeeEnabledUpdated(bool enabled);
+
+    /**
+     * Emitted on dynamic fee manager update
+     * 
+     * @param newAddress address - New dynamic fee manager address
+     */
     event DynamicFeeManagerUpdated(address newAddress);
-    event EmergencyWithdraw(address receiver, uint256 amount);
-    event EmergencyWithdrawToken(address receiver, uint256 amount);
 
-    // Supply (totalSupply already provided by IERC20)
-    function initialSupply() external pure returns (uint256);
+    /**
+     * Returns the initial supply
+     *
+     * @return value uint256 - Initial supply
+     */
+    function initialSupply() external pure returns (uint256 value);
 
-    // Minimal transaction amount
-    function minTxAmount() external view returns (uint256);
+    /**
+     * Returns the minimum transaction amount
+     *
+     * @return value uint256 - Minimum transaction amount
+     */
+    function minTxAmount() external view returns (uint256 value);
 
+    /**
+     * Sets the minimum transaction amount
+     *
+     * @param value uint256 - Minimum transaction amount
+     */
     function setMinTxAmount(uint256 value) external;
 
-    // Transaction pause
-    function paused() external view returns (bool);
+    /**
+     * Returns true if transactions are pause, false if unpaused
+     *
+     * @param value bool - Indicates if transactions are paused
+     */
+    function paused() external view returns (bool value);
 
+    /**
+     * Sets the transaction pause state
+     *
+     * @param value bool - true to pause transactions, false to unpause
+     */
     function setPaused(bool value) external;
 
-    // Pancakeswap Router
-    function pancakeRouter() external view returns (IPancakeRouter02);
-
-    function setPancakeRouter(address value) external;
-
-    // Swap and Liquify
-    function swapAndLiquifyEnabled() external view returns (bool);
-
-    function setSwapAndLiquifyEnabled(bool value) external;
-
-    function swapAndLiquifyBalance() external view returns (uint256);
-
-    function setSwapAndLiquifyBalance(uint256 value) external;
+    /**
+     * Returns true if fees are enabled, false when disabled
+     *
+     * @param value bool - Indicates if fees are enabled
+     */
+    function feesEnabled() external view returns (bool value);
 
     /**
-     * Dynamic Fee System
+     * Sets the transaction fee state
+     *
+     * @param value bool - true to enable fees, false to disable
      */
-    function feesEnabled() external view returns (bool);
-
     function setFeesEnabled(bool value) external;
 
-    function dynamicFeeManager() external view returns (IDynamicFeeManager);
-
-    function setDynamicFeeManager(address value) external;
+    /**
+     * Returns the dynamic fee manager
+     *
+     * @return value IDynamicFeeManager - Dynamic Fee Manager
+     */
+    function dynamicFeeManager()
+        external
+        view
+        returns (IDynamicFeeManager value);
 
     /**
-     * Emergency withdraw
+     * Sets the dynamic fee manager
+     *
+     * @param value address - New dynamic fee manager address
      */
-    function emergencyWithdraw(uint256 amount) external;
-
-    function emergencyWithdrawToken(uint256 amount) external;
+    function setDynamicFeeManager(address value) external;
 }

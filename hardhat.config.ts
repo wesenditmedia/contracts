@@ -6,6 +6,7 @@ import "@nomiclabs/hardhat-waffle";
 import "@typechain/hardhat";
 import "hardhat-gas-reporter";
 import "solidity-coverage";
+import 'hardhat-docgen';
 
 dotenv.config();
 
@@ -51,6 +52,11 @@ const config: HardhatUserConfig = {
   mocha: {
     timeout: 70000
   },
+  docgen: {
+    path: './docs',
+    clear: true,
+    runOnCompile: true,
+  }
   /**etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY,
   },*/

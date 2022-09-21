@@ -15,21 +15,8 @@ contract MockPancakeRouter {
         _weth = weth;
     }
 
-    function WETH() external view returns (address) {
+    function WETH() public view returns (address) {
         return _weth;
-    }
-
-    function getAmountsOut(uint256 amountIn, address[] calldata path)
-        external
-        pure
-        returns (uint256[] memory amounts)
-    {
-        uint256[] memory arr = new uint256[](2);
-
-        arr[0] = amountIn;
-        arr[1] = amountIn.mul(300);
-
-        return arr;
     }
 
     function addLiquidityETH(
@@ -40,14 +27,20 @@ contract MockPancakeRouter {
         address to,
         uint256 deadline
     )
-        external
+        public
         payable
         returns (
             uint256 amountToken,
             uint256 amountETH,
             uint256 liquidity
         )
-    {}
+    {
+        IERC20(token).transferFrom(
+            msg.sender,
+            address(this),
+            amountTokenDesired
+        );
+    }
 
     function swapExactTokensForETHSupportingFeeOnTransferTokens(
         uint256 amountIn,
@@ -55,12 +48,24 @@ contract MockPancakeRouter {
         address[] calldata path,
         address to,
         uint256 deadline
-    ) external payable {}
+    ) public {
+        IERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
+    }
 
     function swapExactETHForTokensSupportingFeeOnTransferTokens(
         uint256 amountOutMin,
         address[] calldata path,
         address to,
         uint256 deadline
-    ) external payable {}
+    ) public payable {}
+
+    function swapExactTokensForTokensSupportingFeeOnTransferTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) public {
+        IERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
+    }
 }

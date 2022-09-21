@@ -2,11 +2,17 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
+import "./EmergencyGuard.sol";
 import "./interfaces/IWeSenditToken.sol";
-import "./interfaces/IPancakeRouter.sol";
 
-abstract contract BaseWeSenditToken is IWeSenditToken, AccessControlEnumerable {
+abstract contract BaseWeSenditToken is
+    IWeSenditToken,
+    EmergencyGuard,
+    AccessControlEnumerable,
+    Ownable
+{
     uint256 public constant INITIAL_SUPPLY = 37500000 * 1 ether;
     uint256 public constant TOTAL_SUPPLY = 1500000000 * 1 ether;
 
@@ -25,8 +31,6 @@ abstract contract BaseWeSenditToken is IWeSenditToken, AccessControlEnumerable {
 
     uint256 private _minTxAmount = 0;
     bool private _paused = false;
-    IPancakeRouter02 private _pancakeRouter =
-        IPancakeRouter02(address(0x10ED43C718714eb63d5aA57B78B54704E256024E));
     bool private _feesEnabled = false;
     bool private _swapAndLiquifyEnabled = false;
     uint256 private _swapAndLiquifyBalance = 0;
@@ -66,42 +70,6 @@ abstract contract BaseWeSenditToken is IWeSenditToken, AccessControlEnumerable {
         emit PausedUpdated(value);
     }
 
-    function pancakeRouter()
-        public
-        view
-        override
-        returns (IPancakeRouter02 router)
-    {
-        return _pancakeRouter;
-    }
-
-    function setPancakeRouter(address value) public override onlyRole(ADMIN) {
-        _pancakeRouter = IPancakeRouter02(value);
-        emit PancakeRouterUpdated(value);
-    }
-
-    function swapAndLiquifyEnabled() public view override returns (bool) {
-        return _swapAndLiquifyEnabled;
-    }
-
-    function setSwapAndLiquifyEnabled(bool value)
-        public
-        override
-        onlyRole(ADMIN)
-    {
-        _swapAndLiquifyEnabled = value;
-        emit SwapAndLiquifyEnabledUpdated(value);
-    }
-
-    function swapAndLiquifyBalance() public view override returns (uint256) {
-        return _swapAndLiquifyBalance;
-    }
-
-    function setSwapAndLiquifyBalance(uint256 value) public override {
-        _swapAndLiquifyBalance = value;
-        emit SwapAndLiquifyBalanceUpdated(value);
-    }
-
     function feesEnabled() public view override returns (bool) {
         return _feesEnabled;
     }
@@ -114,13 +82,29 @@ abstract contract BaseWeSenditToken is IWeSenditToken, AccessControlEnumerable {
         public
         view
         override
-        returns (IDynamicFeeManager dynamicFeeManager)
+        returns (IDynamicFeeManager manager)
     {
         return _dynamicFeeManager;
     }
 
-    function setDynamicFeeManager(address value) public override onlyRole(ADMIN) {
+    function setDynamicFeeManager(address value)
+        public
+        override
+        onlyRole(ADMIN)
+    {
         _dynamicFeeManager = IDynamicFeeManager(value);
         emit DynamicFeeManagerUpdated(value);
+    }
+
+    function emergencyWithdraw(uint256 amount) public override onlyRole(ADMIN) {
+        super._emergencyWithdraw(amount);
+    }
+
+    function emergencyWithdrawToken(address token, uint256 amount)
+        public
+        override
+        onlyRole(ADMIN)
+    {
+        super._emergencyWithdrawToken(token, amount);
     }
 }

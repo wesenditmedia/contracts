@@ -37,15 +37,13 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             "DynamicFeeManager: Invalid fee percentage"
         );
         require(
+            percentage <= FEE_PERCENTAGE_LIMIT,
+            "DynamicFeeManager: Fee percentage exceeds limit"
+        );
+        require(
             !(doLiquify && doSwapForBusd),
             "DynamicFeeManager: Cannot enable liquify and swap at the same time"
         );
-
-        // TODO: add percentage limit
-        // * -> Dex
-        // * -> Dex
-        // * -> Dex
-        // Brian -> DEX
 
         bytes32 id = _generateIdentifier(
             destination,
@@ -119,8 +117,6 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         bool bypassSwapAndLiquify = hasRole(ADMIN, from) ||
             hasRole(BYPASS_SWAP_AND_LIQUIFY, from);
 
-        // TODO: add max. fee
-
         // Loop over all fee entries and calculate plus reflect fee
         for (uint256 i = 0; i < _fees.length; i++) {
             FeeEntry memory fee = _fees[i];
@@ -131,6 +127,11 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
                 _reflectFee(token, from, to, tFee, fee, bypassSwapAndLiquify);
             }
         }
+
+        require(
+            tFees <= amount.mul(TRANSACTION_FEE_LIMIT).div(100),
+            "DynamicFeeManager: Transaction fees exceeding limit"
+        );
 
         tTotal = amount.sub(tFees);
         _validateFeeAmount(amount, tTotal, tFees);

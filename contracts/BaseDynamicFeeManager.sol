@@ -35,6 +35,12 @@ abstract contract BaseDynamicFeeManager is
     // Fee divider
     uint256 internal constant FEE_DIVIDER = 100000;
 
+    // Fee percentage limit
+    uint256 internal constant FEE_PERCENTAGE_LIMIT = 50000; // 50%
+
+    // Transaction fee limit
+    uint256 internal constant TRANSACTION_FEE_LIMIT = 50; // 50%
+
     // Wildcard address for fees
     address internal constant WHITELIST_ADDRESS =
         0x000000000000000000000000000000000000dEaD;

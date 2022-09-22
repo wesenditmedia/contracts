@@ -23,10 +23,7 @@ describe("WeSendit", function () {
   let addrs: SignerWithAddress[]
 
   let ADMIN_ROLE: string
-  let FEE_WHITELIST_ROLE: string
   let BYPASS_PAUSE_ROLE: string
-  let RECEIVER_FEE_WHITELIST_ROLE: string
-  let BYPASS_SWAP_AND_LIQUIFY_ROLE: string
 
   const INITIAL_SUPPLY = parseEther('37500000')
   const TOTAL_SUPPLY = parseEther('1500000000')
@@ -41,12 +38,8 @@ describe("WeSendit", function () {
     contract = await WeSenditToken.deploy(supply.address)
 
     ADMIN_ROLE = await contract.ADMIN()
-    FEE_WHITELIST_ROLE = await contract.FEE_WHITELIST()
     BYPASS_PAUSE_ROLE = await contract.BYPASS_PAUSE()
-    RECEIVER_FEE_WHITELIST_ROLE = await contract.RECEIVER_FEE_WHITELIST()
-    BYPASS_SWAP_AND_LIQUIFY_ROLE = await contract.BYPASS_SWAP_AND_LIQUIFY()
 
-    await contract.setDynamicFeeManager(mockDynamicFeeManager.address)
     await contract.grantRole(ADMIN_ROLE, mockDynamicFeeManager.address)
   });
 
@@ -64,17 +57,14 @@ describe("WeSendit", function () {
       expect(await contract.initialSupply()).to.equal(INITIAL_SUPPLY)
       expect(await contract.minTxAmount()).to.equal(0)
       expect(await contract.paused()).to.equal(false)
-      expect(await contract.feesEnabled()).to.equal(false)
-      expect(await contract.dynamicFeeManager()).to.equal(mockDynamicFeeManager.address)
+      expect(await contract.dynamicFeeManager()).to.equal(ethers.constants.AddressZero)
     })
 
     it("should assign correct roles to creator", async function () {
       expect(await contract.hasRole(ADMIN_ROLE, owner.address)).to.equal(true)
 
       expect(await contract.getRoleAdmin(ADMIN_ROLE)).to.equal(ADMIN_ROLE)
-      expect(await contract.getRoleAdmin(FEE_WHITELIST_ROLE)).to.equal(ADMIN_ROLE)
       expect(await contract.getRoleAdmin(BYPASS_PAUSE_ROLE)).to.equal(ADMIN_ROLE)
-      expect(await contract.getRoleAdmin(RECEIVER_FEE_WHITELIST_ROLE)).to.equal(ADMIN_ROLE)
     })
   });
 
@@ -82,26 +72,32 @@ describe("WeSendit", function () {
     beforeEach(async function () {
       await contract.connect(supply).transfer(alice.address, parseEther('100'))
       await contract.connect(supply).transfer(owner.address, parseEther('100'))
-      await contract.setFeesEnabled(true)
+      await contract.setDynamicFeeManager(mockDynamicFeeManager.address)
     })
 
     describe('transfer()', function () {
       it('should call dynamic fee manager for calculation on normal transfer without fees', async function () {
+        // Assert
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
+
         // Act
         await contract.connect(alice).transfer(bob.address, parseEther('100'))
 
         // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledOnce
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledWith(
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('100'))
+        expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
+        expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
+          contract.address,
           alice.address,
           bob.address,
           parseEther('100')
         )
-
-        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
       })
 
       it('should call dynamic fee manager on normal transfer', async function () {
+        // Assert
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
+
         // Arrange
         await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ percentage: 10000, destination: addrs[0].address })) // 10%
 
@@ -109,92 +105,14 @@ describe("WeSendit", function () {
         await contract.connect(alice).transfer(bob.address, parseEther('100'))
 
         // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledOnce
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledWith(
-          alice.address,
-          bob.address,
-          parseEther('100')
-        )
-
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('100'))
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
           contract.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
-        )
-      })
-
-      it('should call dynamic fee manager with swap / liquify bypass on normal transfer', async function () {
-        // Arrange
-        await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ percentage: 10000, destination: addrs[0].address })) // 10%
-        await contract.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, alice.address)
-
-        // Act
-        await contract.connect(alice).transfer(bob.address, parseEther('100'))
-
-        // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledOnce
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledWith(
-          alice.address,
-          bob.address,
           parseEther('100')
         )
-
-        expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
-        expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
-          contract.address,
-          alice.address,
-          bob.address,
-          parseEther('100'),
-          true
-        )
-      })
-
-      it('should not call dynamic fee manager if owner', async function () {
-        // Act
-        await contract.connect(owner).transfer(bob.address, parseEther('100'))
-
-        // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.not.been.called
-        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
-      })
-
-      it('should not call dynamic fee manager if admin role', async function () {
-        // Arrange
-        await contract.grantRole(ADMIN_ROLE, alice.address)
-
-        // Act
-        await contract.connect(alice).transfer(bob.address, parseEther('100'))
-
-        // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.not.been.called
-        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
-      })
-
-      it('should not call dynamic fee manager if fee whitelist role on sender', async function () {
-        // Arrange
-        await contract.grantRole(FEE_WHITELIST_ROLE, alice.address)
-
-        // Act
-        await contract.connect(alice).transfer(bob.address, parseEther('100'))
-
-        // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.not.been.called
-        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
-      })
-
-      it('should not call dynamic fee manager if fee whitelist role on receiver', async function () {
-        // Arrange
-        await contract.grantRole(RECEIVER_FEE_WHITELIST_ROLE, bob.address)
-
-        // Act
-        await contract.connect(alice).transfer(bob.address, parseEther('100'))
-
-        // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.not.been.called
-        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
       })
     })
 
@@ -205,21 +123,27 @@ describe("WeSendit", function () {
       })
 
       it('should call dynamic fee manager for calculation on normal transfer without fees', async function () {
+        // Assert
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
+
         // Act
         await contract.transferFrom(alice.address, bob.address, parseEther('100'))
 
         // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledOnce
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledWith(
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('100'))
+        expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
+        expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
+          contract.address,
           alice.address,
           bob.address,
           parseEther('100')
         )
-
-        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
       })
 
       it('should call dynamic fee manager on normal transfer', async function () {
+        // Assert
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
+
         // Arrange
         await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ percentage: 10000, destination: addrs[0].address })) // 10%
 
@@ -227,92 +151,14 @@ describe("WeSendit", function () {
         await contract.transferFrom(alice.address, bob.address, parseEther('100'))
 
         // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledOnce
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledWith(
-          alice.address,
-          bob.address,
-          parseEther('100')
-        )
-
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('100'))
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
           contract.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
-        )
-      })
-
-      it('should call dynamic fee manager with swap / liquify bypass on normal transfer', async function () {
-        // Arrange
-        await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ percentage: 10000, destination: addrs[0].address })) // 10%
-        await contract.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, alice.address)
-
-        // Act
-        await contract.transferFrom(alice.address, bob.address, parseEther('100'))
-
-        // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledOnce
-        expect(mockDynamicFeeManager.calculateFees).to.have.been.calledWith(
-          alice.address,
-          bob.address,
           parseEther('100')
         )
-
-        expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
-        expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
-          contract.address,
-          alice.address,
-          bob.address,
-          parseEther('100'),
-          true
-        )
-      })
-
-      it('should not call dynamic fee manager if owner', async function () {
-        // Act
-        await contract.transferFrom(owner.address, bob.address, parseEther('100'))
-
-        // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.not.been.called
-        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
-      })
-
-      it('should not call dynamic fee manager if admin role', async function () {
-        // Arrange
-        await contract.grantRole(ADMIN_ROLE, alice.address)
-
-        // Act
-        await contract.transferFrom(alice.address, bob.address, parseEther('100'))
-
-        // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.not.been.called
-        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
-      })
-
-      it('should not call dynamic fee manager if fee whitelist role on sender', async function () {
-        // Arrange
-        await contract.grantRole(FEE_WHITELIST_ROLE, alice.address)
-
-        // Act
-        await contract.transferFrom(alice.address, bob.address, parseEther('100'))
-
-        // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.not.been.called
-        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
-      })
-
-      it('should not call dynamic fee manager if fee whitelist role on receiver', async function () {
-        // Arrange
-        await contract.grantRole(RECEIVER_FEE_WHITELIST_ROLE, bob.address)
-
-        // Act
-        await contract.transferFrom(alice.address, bob.address, parseEther('100'))
-
-        // Assert
-        expect(mockDynamicFeeManager.calculateFees).to.have.not.been.called
-        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
       })
     })
   })

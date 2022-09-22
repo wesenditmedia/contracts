@@ -100,34 +100,27 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         emit FeeRemoved(id, index);
     }
 
-    function calculateFees(
-        address from,
-        address to,
-        uint256 amount
-    ) public view override returns (uint256 tTotal, uint256 tFees) {
-        // Loop over all fee entries and calculate fee
-        for (uint256 i = 0; i < _fees.length; i++) {
-            FeeEntry memory fee = _fees[i];
-
-            if (_isFeeEntryValid(fee) && _isFeeEntryMatching(fee, from, to)) {
-                uint256 tFee = _calculateFee(amount, fee);
-                tFees = tFees.add(tFee);
-            }
-        }
-
-        tTotal = amount.sub(tFees);
-        _validateFeeAmount(amount, tTotal, tFees);
-
-        return (tTotal, tFees);
-    }
-
     function reflectFees(
         address token,
         address from,
         address to,
-        uint256 amount,
-        bool bypassSwapAndLiquify
+        uint256 amount
     ) public override returns (uint256 tTotal, uint256 tFees) {
+        bool bypassFees = !feesEnabled() ||
+            from == owner() ||
+            hasRole(ADMIN, from) ||
+            hasRole(FEE_WHITELIST, from) ||
+            hasRole(RECEIVER_FEE_WHITELIST, to);
+
+        if (bypassFees) {
+            return (amount, 0);
+        }
+
+        bool bypassSwapAndLiquify = hasRole(ADMIN, from) ||
+            hasRole(BYPASS_SWAP_AND_LIQUIFY, from);
+
+        // TODO: add max. fee
+
         // Loop over all fee entries and calculate plus reflect fee
         for (uint256 i = 0; i < _fees.length; i++) {
             FeeEntry memory fee = _fees[i];
@@ -165,12 +158,20 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         // Transfer fee or add to liquify / swap amount
         if (!fee.doLiquify && !fee.doSwapForBusd) {
             require(
-                IERC20(token).transfer(fee.destination, tFee),
+                IWeSenditToken(token).transferFromNoFees(
+                    from,
+                    fee.destination,
+                    tFee
+                ),
                 "DynamicFeeManager: Fee transfer to destination failed"
             );
         } else {
             require(
-                IERC20(token).transfer(address(this), tFee),
+                IWeSenditToken(token).transferFromNoFees(
+                    from,
+                    address(this),
+                    tFee
+                ),
                 "DynamicFeeManager: Fee transfer to manager failed"
             );
             _amounts[fee.id] = _amounts[fee.id].add(tFee);

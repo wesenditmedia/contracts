@@ -21,6 +21,17 @@ abstract contract BaseDynamicFeeManager is
     // Role allowed to do admin operations like adding to fee whitelist, withdraw, etc.
     bytes32 public constant ADMIN = keccak256("ADMIN");
 
+    // Role allowed to bypass fees
+    bytes32 public constant FEE_WHITELIST = keccak256("FEE_WHITELIST");
+
+    // Role allowed to token be sent to without fee
+    bytes32 public constant RECEIVER_FEE_WHITELIST =
+        keccak256("RECEIVER_FEE_WHITELIST");
+
+    // Role allowed to bypass swap and liquify
+    bytes32 public constant BYPASS_SWAP_AND_LIQUIFY =
+        keccak256("BYPASS_SWAP_AND_LIQUIFY");
+
     // Fee divider
     uint256 internal constant FEE_DIVIDER = 100000;
 
@@ -34,6 +45,9 @@ abstract contract BaseDynamicFeeManager is
     // Mapping id to current liquify or swap amounts
     mapping(bytes32 => uint256) internal _amounts;
 
+    // Fees enabled state
+    bool private _feesEnabled = false;
+
     // Pancake Router address
     IPancakeRouter02 private _pancakeRouter =
         IPancakeRouter02(address(0x10ED43C718714eb63d5aA57B78B54704E256024E));
@@ -45,10 +59,16 @@ abstract contract BaseDynamicFeeManager is
         // Add creator to admin role
         _setupRole(ADMIN, _msgSender());
 
-        // Set role admin for admin role
+        // Set role admin for roles
         _setRoleAdmin(ADMIN, ADMIN);
+        _setRoleAdmin(FEE_WHITELIST, ADMIN);
+        _setRoleAdmin(RECEIVER_FEE_WHITELIST, ADMIN);
+        _setRoleAdmin(BYPASS_SWAP_AND_LIQUIFY, ADMIN);
     }
 
+    /**
+     * Getter & Setter
+     */
     function getFee(uint256 index)
         public
         view
@@ -60,6 +80,14 @@ abstract contract BaseDynamicFeeManager is
 
     function getFeeAmount(bytes32 id) public view returns (uint256 amount) {
         return _amounts[id];
+    }
+
+    function feesEnabled() public view override returns (bool) {
+        return _feesEnabled;
+    }
+
+    function setFeesEnabled(bool value) public override onlyRole(ADMIN) {
+        _feesEnabled = value;
     }
 
     function pancakeRouter()

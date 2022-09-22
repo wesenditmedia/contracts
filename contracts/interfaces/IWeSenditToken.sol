@@ -7,28 +7,21 @@ import "./IDynamicFeeManager.sol";
 interface IWeSenditToken {
     /**
      * Emitted on minimum transaction amount update
-     * 
+     *
      * @param minTxAmount uint256 - New minimum transaction amount
      */
     event MinTxAmountUpdated(uint256 minTxAmount);
 
     /**
      * Emitted on transaction pause update
-     * 
+     *
      * @param paused bool - Indicates if the transactions are paused now
      */
     event PausedUpdated(bool paused);
 
     /**
-     * Emitted on fee state update
-     * 
-     * @param enabled bool - Indicates if fees are enabled now
-     */
-    event FeeEnabledUpdated(bool enabled);
-
-    /**
      * Emitted on dynamic fee manager update
-     * 
+     *
      * @param newAddress address - New dynamic fee manager address
      */
     event DynamicFeeManagerUpdated(address newAddress);
@@ -69,20 +62,6 @@ interface IWeSenditToken {
     function setPaused(bool value) external;
 
     /**
-     * Returns true if fees are enabled, false when disabled
-     *
-     * @param value bool - Indicates if fees are enabled
-     */
-    function feesEnabled() external view returns (bool value);
-
-    /**
-     * Sets the transaction fee state
-     *
-     * @param value bool - true to enable fees, false to disable
-     */
-    function setFeesEnabled(bool value) external;
-
-    /**
      * Returns the dynamic fee manager
      *
      * @return value IDynamicFeeManager - Dynamic Fee Manager
@@ -98,4 +77,17 @@ interface IWeSenditToken {
      * @param value address - New dynamic fee manager address
      */
     function setDynamicFeeManager(address value) external;
+
+    /**
+     * Transfers token from <from> to <to> without applying fees
+     *
+     * @param from address - Sender address
+     * @param to address - Receiver address
+     * @param amount uin256 - Transaction amount
+     */
+    function transferFromNoFees(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool);
 }

@@ -96,6 +96,13 @@ interface IDynamicFeeManager {
     );
 
     /**
+     * Emitted on fee state update
+     *
+     * @param enabled bool - Indicates if fees are enabled now
+     */
+    event FeeEnabledUpdated(bool enabled);
+
+    /**
      * Emitted on pancake router address update
      *
      * @param newAddress address - New pancake router address
@@ -181,22 +188,6 @@ interface IDynamicFeeManager {
     function removeFee(uint256 index) external;
 
     /**
-     * Calculates the fee for a transaction
-     *
-     * @param from address - Sender address
-     * @param to address - Receiver address
-     * @param amount uint256 - Transaction amount
-     *
-     * @return tTotal uint256 - Total transaction amount after fees
-     * @return tFees uint256 - Total fee amount
-     */
-    function calculateFees(
-        address from,
-        address to,
-        uint256 amount
-    ) external view returns (uint256 tTotal, uint256 tFees);
-
-    /**
      * Reflects the fee for a transaction
      *
      * @param token address - Address of the ERC20 token used
@@ -211,8 +202,7 @@ interface IDynamicFeeManager {
         address token,
         address from,
         address to,
-        uint256 amount,
-        bool bypassSwapAndLiquify
+        uint256 amount
     ) external returns (uint256 tTotal, uint256 tFees);
 
     /**
@@ -223,6 +213,20 @@ interface IDynamicFeeManager {
      * @return amount uint256 - Collected amount
      */
     function getFeeAmount(bytes32 id) external view returns (uint256 amount);
+
+    /**
+     * Returns true if fees are enabled, false when disabled
+     *
+     * @param value bool - Indicates if fees are enabled
+     */
+    function feesEnabled() external view returns (bool value);
+
+    /**
+     * Sets the transaction fee state
+     *
+     * @param value bool - true to enable fees, false to disable
+     */
+    function setFeesEnabled(bool value) external;
 
     /**
      * Returns the pancake router

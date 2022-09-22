@@ -3,7 +3,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import chai from 'chai'
 import { ethers } from 'hardhat'
 import { expect } from 'chai'
-import { DynamicFeeManager, MockERC20, MockFeeReceiver__factory, MockPancakeRouter, MockPancakeRouter__factory } from "../typechain";
+import { DynamicFeeManager, MockERC20, MockFeeReceiver__factory, MockPancakeRouter, MockPancakeRouter__factory, WeSenditToken, WeSenditToken__factory } from "../typechain";
 import { MockContract, smock } from '@defi-wonderland/smock';
 import { MockFeeReceiver } from "../typechain/MockFeeReceiver";
 import { BigNumberish } from "ethers";
@@ -50,7 +50,7 @@ describe("Dynamic Fee Manager", function () {
   let contract: DynamicFeeManager
 
   let mockBnb: MockERC20
-  let mockWsi: MockERC20
+  let mockWsi: MockContract<WeSenditToken>
   let mockBusd: MockERC20
   let mockPancakeRouter: MockContract<MockPancakeRouter>;
   let mockFeeReceiver: MockContract<MockFeeReceiver>
@@ -59,20 +59,26 @@ describe("Dynamic Fee Manager", function () {
   let alice: SignerWithAddress;
   let bob: SignerWithAddress;
   let charlie: SignerWithAddress;
+  let mockWsiSupply: SignerWithAddress
   let addrs: SignerWithAddress[];
 
   let ADMIN_ROLE: string
+  let FEE_WHITELIST_ROLE: string
+  let RECEIVER_FEE_WHITELIST_ROLE: string
+  let BYPASS_SWAP_AND_LIQUIFY_ROLE: string
 
   beforeEach(async function () {
-    [owner, alice, bob, charlie, ...addrs] = await ethers.getSigners();
+    [owner, alice, bob, charlie, mockWsiSupply, ...addrs] = await ethers.getSigners();
 
     const DynamicFeeManager = await ethers.getContractFactory("DynamicFeeManager")
     contract = await DynamicFeeManager.deploy()
 
     const MockERC20 = await ethers.getContractFactory('MockERC20')
     mockBnb = await MockERC20.deploy()
-    mockWsi = await MockERC20.deploy()
     mockBusd = await MockERC20.deploy()
+
+    const WeSenditToken = await smock.mock<WeSenditToken__factory>('WeSenditToken')
+    mockWsi = await WeSenditToken.deploy(mockWsiSupply.address)
 
     const MockPancakeRouter = await smock.mock<MockPancakeRouter__factory>('MockPancakeRouter')
     mockPancakeRouter = await MockPancakeRouter.deploy(mockBnb.address)
@@ -81,24 +87,36 @@ describe("Dynamic Fee Manager", function () {
     mockFeeReceiver = await MockFeeReceiver.deploy()
 
     ADMIN_ROLE = await contract.ADMIN()
+    FEE_WHITELIST_ROLE = await contract.FEE_WHITELIST()
+    RECEIVER_FEE_WHITELIST_ROLE = await contract.RECEIVER_FEE_WHITELIST()
+    BYPASS_SWAP_AND_LIQUIFY_ROLE = await contract.BYPASS_SWAP_AND_LIQUIFY()
 
+    await mockWsi.grantRole(await mockWsi.ADMIN(), contract.address)
+    await mockWsi.connect(mockWsiSupply).transfer(owner.address, parseEther('100'))
+
+    await contract.setFeesEnabled(true)
     await contract.setPancakeRouter(mockPancakeRouter.address)
     await contract.setBusdAddress(mockBusd.address)
   });
 
   describe("Deployment", function () {
     it("should set the right owner", async function () {
-      expect(await contract.owner()).to.equal(owner.address);
+      expect(await contract.owner()).to.equal(owner.address)
     });
 
     it("should assign correct initial values", async function () {
-      expect(await contract.pancakeRouter()).to.equal(mockPancakeRouter.address);
-      expect(await contract.busdAddress()).to.equal(mockBusd.address);
+      expect(await contract.feesEnabled()).to.equal(true)
+      expect(await contract.pancakeRouter()).to.equal(mockPancakeRouter.address)
+      expect(await contract.busdAddress()).to.equal(mockBusd.address)
     })
 
     it("should assign correct roles to creator", async function () {
       expect(await contract.hasRole(ADMIN_ROLE, owner.address)).to.equal(true)
+
       expect(await contract.getRoleAdmin(ADMIN_ROLE)).to.equal(ADMIN_ROLE)
+      expect(await contract.getRoleAdmin(FEE_WHITELIST_ROLE)).to.equal(ADMIN_ROLE)
+      expect(await contract.getRoleAdmin(RECEIVER_FEE_WHITELIST_ROLE)).to.equal(ADMIN_ROLE)
+      expect(await contract.getRoleAdmin(BYPASS_SWAP_AND_LIQUIFY_ROLE)).to.equal(ADMIN_ROLE)
     })
   });
 
@@ -335,175 +353,181 @@ describe("Dynamic Fee Manager", function () {
   })
 
   describe('Fee Calculation', function () {
+    beforeEach(async function () {
+      await mockWsi.transfer(alice.address, parseEther('100'))
+      await mockWsi.connect(alice).approve(contract.address, parseEther('100'))
+    })
+
     it('should calculate correct fee for single entry', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('90'))
-      expect(res[1]).to.equal(parseEther('10'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
     })
 
     it('should calculate correct fee for multiple entries', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000 })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ percentage: 5000 })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 5000 })) // 5%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('85'))
-      expect(res[1]).to.equal(parseEther('15'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('15'))
     })
 
     it('should calculate correct fee for relevant entries (1)', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000 })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 5000 })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 5000 })) // 5%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('85'))
-      expect(res[1]).to.equal(parseEther('15'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('15'))
     })
 
     it('should calculate correct fee for relevant entries (2)', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000 })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ from: bob.address, percentage: 5000 })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, from: bob.address, percentage: 5000 })) // 5%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('90'))
-      expect(res[1]).to.equal(parseEther('10'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
     })
 
     it('should calculate correct fee for relevant entries (3)', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 5000 })) // 5%
-      await contract.addFee(...getFeeEntryArgs({ from: bob.address, percentage: 5000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 5000 })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, from: bob.address, percentage: 5000 })) // 10%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('95'))
-      expect(res[1]).to.equal(parseEther('5'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
     })
 
     it('should calculate correct fee for relevant entries (4)', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000 })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ from: bob.address, percentage: 5000 })) // 5%
-      await contract.addFee(...getFeeEntryArgs({ from: alice.address, percentage: 7500 })) // 7.5%
-      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, from: bob.address, percentage: 5000 })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, from: alice.address, percentage: 7500 })) // 7.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 2500 })) // 2.5%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('80'))
-      expect(res[1]).to.equal(parseEther('20'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('20'))
     })
 
     it('should calculate correct fee for relevant entries (5)', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000 })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ from: alice.address, percentage: 5000 })) // 5%
-      await contract.addFee(...getFeeEntryArgs({ from: alice.address, percentage: 7500 })) // 7.5%
-      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, from: alice.address, percentage: 5000 })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, from: alice.address, percentage: 7500 })) // 7.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 2500 })) // 2.5%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('75'))
-      expect(res[1]).to.equal(parseEther('25'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('25'))
     })
 
     it('should calculate correct fee for relevant entries (6)', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000 })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ from: alice.address, percentage: 5000 })) // 5%
-      await contract.addFee(...getFeeEntryArgs({ from: alice.address, percentage: 7500 })) // 7.5%
-      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 2500 })) // 2.5%
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000 })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 10000 })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, from: alice.address, percentage: 5000 })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, from: alice.address, percentage: 7500 })) // 7.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 10000 })) // 10%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('45'))
-      expect(res[1]).to.equal(parseEther('55'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('55'))
     })
 
     it('should calculate correct fee for relevant entries (7)', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000 })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ from: alice.address, percentage: 5000 })) // 5%
-      await contract.addFee(...getFeeEntryArgs({ from: alice.address, percentage: 7500 })) // 7.5%
-      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, from: alice.address, percentage: 5000 })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, from: alice.address, percentage: 7500 })) // 7.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 2500 })) // 2.5%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('0.0002')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('0.000150'))
-      expect(res[1]).to.equal(parseEther('0.000050'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0.000050'))
     })
 
     it('should fail to calculate fee is overall fee is equal 100%', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 100000 })) // 100%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 100000 })) // 100%
 
       // Act & Assert
-      await expect(contract.calculateFees(
+      await expect(contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -512,11 +536,12 @@ describe("Dynamic Fee Manager", function () {
 
     it('should fail to calculate fee is overall fee is over 100%', async function () {
       // Arrange
-      await contract.addFee(...getFeeEntryArgs({ percentage: 100000 })) // 100%
-      await contract.addFee(...getFeeEntryArgs({ percentage: 1000 })) // 1%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 100000 })) // 100%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
 
       // Act & Assert
-      await expect(contract.calculateFees(
+      await expect(contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -528,18 +553,18 @@ describe("Dynamic Fee Manager", function () {
       const blockTimestamp = await getBlockTimestamp()
       const validUntil = moment.unix(blockTimestamp).add(10, 'seconds').unix()
 
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000, validUntil })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, validUntil })) // 10%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('90'))
-      expect(res[1]).to.equal(parseEther('10'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
     })
 
     it('should calculate correct fee for time relevant entries (1)', async function () {
@@ -547,21 +572,21 @@ describe("Dynamic Fee Manager", function () {
       const blockTimestamp = await getBlockTimestamp()
       const validUntil = moment.unix(blockTimestamp).add(10, 'seconds').unix()
 
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000, validUntil })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ percentage: 5000, validUntil: blockTimestamp })) // 5%
-      await contract.addFee(...getFeeEntryArgs({ percentage: 7500, validUntil: blockTimestamp })) // 7.5%
-      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 2500, validUntil })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, validUntil })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 5000, validUntil: blockTimestamp })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 7500, validUntil: blockTimestamp })) // 7.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 2500, validUntil })) // 2.5%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('87.5'))
-      expect(res[1]).to.equal(parseEther('12.5'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('12.5'))
     })
 
     it('should calculate correct fee for time relevant entries (2)', async function () {
@@ -569,46 +594,46 @@ describe("Dynamic Fee Manager", function () {
       const blockTimestamp = await getBlockTimestamp()
       const validUntil = moment.unix(blockTimestamp).add(10, 'seconds').unix()
 
-      await contract.addFee(...getFeeEntryArgs({ percentage: 10000, validUntil })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ percentage: 5000, validUntil })) // 5%
-      await contract.addFee(...getFeeEntryArgs({ percentage: 7500, validUntil })) // 7.5%
-      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 2500, validUntil })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, validUntil })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 5000, validUntil })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 7500, validUntil })) // 7.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 2500, validUntil })) // 2.5%
 
       // Act
-      const res = await contract.calculateFees(
+      await contract.reflectFees(
+        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
       )
 
       // Assert
-      expect(res[0]).to.equal(parseEther('75'))
-      expect(res[1]).to.equal(parseEther('25'))
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('25'))
     })
   })
 
   describe('Fee Refelection', function () {
     beforeEach(async function () {
       await mockWsi.transfer(alice.address, parseEther('100'))
+      await mockWsi.connect(alice).approve(contract.address, parseEther('100'))
     })
 
     describe('Basic Fees', function () {
       it('should reflect single fee', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
-        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(mockWsi.transferFromNoFees).to.have.been.calledOnce
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('90'))
         expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
       })
 
@@ -617,19 +642,18 @@ describe("Dynamic Fee Manager", function () {
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 5000 })) // 5%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
-        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(mockWsi.transferFromNoFees).to.have.been.calledThrice
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('82.5'))
         expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('17.5'))
       })
 
@@ -640,34 +664,107 @@ describe("Dynamic Fee Manager", function () {
         await contract.addFee(...getFeeEntryArgs({ to: bob.address, destination: addrs[0].address, percentage: 2500 })) // 2.5% (matches)
         await contract.addFee(...getFeeEntryArgs({ from: alice.address, destination: addrs[0].address, percentage: 3500 })) // 3.5% (matches)
         await contract.addFee(...getFeeEntryArgs({ to: alice.address, destination: addrs[0].address, percentage: 4500 })) // 4.5%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
-        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(mockWsi.transferFromNoFees).to.have.been.calledThrice
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('84'))
         expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('16'))
+      })
+
+      it('should not reflect fee if sender is owner', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+        await contract.transferOwnership(alice.address)
+
+        // Act
+        await contract.connect(alice).reflectFees(
+          mockWsi.address,
+          alice.address,
+          bob.address,
+          parseEther('100')
+        )
+
+        // Assert
+        expect(mockWsi.transferFromNoFees).to.have.not.been.called
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
+      })
+
+      it('should not reflect fee if sender has admin role', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+        await contract.grantRole(ADMIN_ROLE, alice.address)
+
+        // Act
+        await contract.connect(alice).reflectFees(
+          mockWsi.address,
+          alice.address,
+          bob.address,
+          parseEther('100')
+        )
+
+        // Assert
+        expect(mockWsi.transferFromNoFees).to.have.not.been.called
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
+      })
+
+      it('should not reflect fee if sender has fee whitelist role', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+        await contract.grantRole(FEE_WHITELIST_ROLE, alice.address)
+
+        // Act
+        await contract.connect(alice).reflectFees(
+          mockWsi.address,
+          alice.address,
+          bob.address,
+          parseEther('100')
+        )
+
+        // Assert
+        expect(mockWsi.transferFromNoFees).to.have.not.been.called
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
+      })
+
+      it('should not reflect fee if receiver has fee receiver whitelist role', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
+        await contract.grantRole(RECEIVER_FEE_WHITELIST_ROLE, bob.address)
+
+        // Act
+        await contract.connect(alice).reflectFees(
+          mockWsi.address,
+          alice.address,
+          bob.address,
+          parseEther('100')
+        )
+
+        // Assert
+        expect(mockWsi.transferFromNoFees).to.have.not.been.called
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
       })
 
       it('should fail to reflect fee is overall fee is equal 100%', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 100000 })) // 100%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act & Assert
         await expect(contract.reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )).to.be.revertedWith('DynamicFeeManager: invalid total amount')
       })
 
@@ -675,15 +772,13 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 100000 })) // 100%
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act & Assert
         await expect(contract.reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )).to.be.reverted
       })
     })
@@ -692,15 +787,13 @@ describe("Dynamic Fee Manager", function () {
       it('should reflect single fee and call callback', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doCallback: true })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -719,15 +812,13 @@ describe("Dynamic Fee Manager", function () {
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doCallback: true })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 2500, doCallback: true })) // 2.5%
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 5000, doCallback: true })) // 5%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -765,15 +856,13 @@ describe("Dynamic Fee Manager", function () {
         await contract.addFee(...getFeeEntryArgs({ to: bob.address, destination: mockFeeReceiver.address, percentage: 2500, doCallback: true })) // 2.5% (matches)
         await contract.addFee(...getFeeEntryArgs({ from: alice.address, destination: mockFeeReceiver.address, percentage: 3500, doCallback: false })) // 3.5% (matches, no callback)
         await contract.addFee(...getFeeEntryArgs({ to: alice.address, destination: mockFeeReceiver.address, percentage: 4500, doCallback: true })) // 4.5%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -801,20 +890,18 @@ describe("Dynamic Fee Manager", function () {
       it('should collect liquidation amount for single fee', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('11') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
         expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.not.be.called
-        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('10'))
 
         const fee = await contract.getFee(0)
         expect(await contract.getFeeAmount(fee.id)).to.equal(parseEther('10'))
@@ -824,20 +911,18 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('21') })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('21') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
         expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.not.be.called
-        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('20'))
 
         const fee = await contract.getFee(0)
         expect(await contract.getFeeAmount(fee.id)).to.equal(parseEther('20'))
@@ -847,20 +932,18 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('11') })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('21') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
         expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.not.be.called
-        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('20'))
 
         const feeOne = await contract.getFee(0)
         expect(await contract.getFeeAmount(feeOne.id)).to.equal(parseEther('10'))
@@ -872,28 +955,25 @@ describe("Dynamic Fee Manager", function () {
       it('should collect liquidation amount for multiple transactions with single fee', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('8') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('50'),
-          false
+          parseEther('50')
         )
 
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('25'),
-          false
+          parseEther('25')
         )
 
         // Assert
         expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.not.be.called
-        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('7.5'))
 
         const fee = await contract.getFee(0)
         expect(await contract.getFeeAmount(fee.id)).to.equal(parseEther('7.5'))
@@ -902,15 +982,13 @@ describe("Dynamic Fee Manager", function () {
       it('should add liquidy if amount is reached for single fee', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('10') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -937,15 +1015,13 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('12') })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('12') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -975,15 +1051,13 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: bob.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('10') })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: charlie.address, percentage: 20000, doLiquify: true, swapOrLiquifyAmount: parseEther('20') })) // 20%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -1022,15 +1096,13 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: bob.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('10') })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: charlie.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('20') })) // 20%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -1056,18 +1128,17 @@ describe("Dynamic Fee Manager", function () {
         )
       })
 
-      it('should not add liquidy if bypass is set to true', async function () {
+      it('should not add liquidy if sender has bypass role', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: bob.address, percentage: 10000, doLiquify: true, swapOrLiquifyAmount: parseEther('10') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
+        await contract.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, alice.address)
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          true
+          parseEther('100')
         )
 
         // Assert
@@ -1085,20 +1156,18 @@ describe("Dynamic Fee Manager", function () {
       it('should collect swap amount for single fee', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('11') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
         expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.not.be.called
-        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('10'))
 
         const fee = await contract.getFee(0)
         expect(await contract.getFeeAmount(fee.id)).to.equal(parseEther('10'))
@@ -1108,20 +1177,18 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('21') })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('21') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
         expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.not.be.called
-        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('20'))
 
         const fee = await contract.getFee(0)
         expect(await contract.getFeeAmount(fee.id)).to.equal(parseEther('20'))
@@ -1131,20 +1198,18 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('11') })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('21') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
         expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.not.be.called
-        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('20'))
 
         const feeOne = await contract.getFee(0)
         expect(await contract.getFeeAmount(feeOne.id)).to.equal(parseEther('10'))
@@ -1156,15 +1221,13 @@ describe("Dynamic Fee Manager", function () {
       it('should swap if amount is reached for single fee', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('10') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -1187,15 +1250,13 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('12') })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('12') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -1221,15 +1282,13 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: bob.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('10') })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: charlie.address, percentage: 20000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('20') })) // 20%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -1263,15 +1322,13 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: bob.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('10') })) // 10%
         await contract.addFee(...getFeeEntryArgs({ destination: charlie.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('20') })) // 20%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          false
+          parseEther('100')
         )
 
         // Assert
@@ -1293,18 +1350,17 @@ describe("Dynamic Fee Manager", function () {
         )
       })
 
-      it('should not swap if bypass is set to true', async function () {
+      it('should not swap if sender has bypass role', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: bob.address, percentage: 10000, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('10') })) // 10%
-        await mockWsi.connect(alice).transfer(contract.address, parseEther('100'))
+        await contract.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, alice.address)
 
         // Act
         await contract.connect(alice).reflectFees(
           mockWsi.address,
           alice.address,
           bob.address,
-          parseEther('100'),
-          true
+          parseEther('100')
         )
 
         // Assert

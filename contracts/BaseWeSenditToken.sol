@@ -18,20 +18,12 @@ abstract contract BaseWeSenditToken is
 
     // Role allowed to do admin operations like adding to fee whitelist, withdraw, etc.
     bytes32 public constant ADMIN = keccak256("ADMIN");
-    // Role allowed to bypass fees
-    bytes32 public constant FEE_WHITELIST = keccak256("FEE_WHITELIST");
-    // Role allowed to token be sent to without fee
-    bytes32 public constant RECEIVER_FEE_WHITELIST =
-        keccak256("RECEIVER_FEE_WHITELIST");
+
     // Role allowed to bypass pause
     bytes32 public constant BYPASS_PAUSE = keccak256("BYPASS_PAUSE");
-    // Role allowed to bypass swap and liquify
-    bytes32 public constant BYPASS_SWAP_AND_LIQUIFY =
-        keccak256("BYPASS_SWAP_AND_LIQUIFY");
 
     uint256 private _minTxAmount = 0;
     bool private _paused = false;
-    bool private _feesEnabled = false;
     bool private _swapAndLiquifyEnabled = false;
     uint256 private _swapAndLiquifyBalance = 0;
     IDynamicFeeManager private _dynamicFeeManager;
@@ -39,10 +31,7 @@ abstract contract BaseWeSenditToken is
     constructor() {
         _setupRole(ADMIN, _msgSender());
         _setRoleAdmin(ADMIN, ADMIN);
-        _setRoleAdmin(FEE_WHITELIST, ADMIN);
         _setRoleAdmin(BYPASS_PAUSE, ADMIN);
-        _setRoleAdmin(RECEIVER_FEE_WHITELIST, ADMIN);
-        _setRoleAdmin(BYPASS_SWAP_AND_LIQUIFY, ADMIN);
     }
 
     /**
@@ -68,14 +57,6 @@ abstract contract BaseWeSenditToken is
     function setPaused(bool value) public override onlyRole(ADMIN) {
         _paused = value;
         emit PausedUpdated(value);
-    }
-
-    function feesEnabled() public view override returns (bool) {
-        return _feesEnabled;
-    }
-
-    function setFeesEnabled(bool value) public override onlyRole(ADMIN) {
-        _feesEnabled = value;
     }
 
     function dynamicFeeManager()

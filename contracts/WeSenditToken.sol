@@ -43,27 +43,10 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
         override
         returns (bool)
     {
-        address from = _msgSender();
+        // Reflect fees
+        (uint256 tTotal, ) = _reflectFees(_msgSender(), to, amount);
 
-        // TODO: move calculate + reflection -> processFees on fee manager
-        // Call "internal" transfer function on token
-        // Move whitelist to fee manager
-        // Add check for fee manager == 0x
-
-        // Calculate applied fees
-        (uint256 tTotal, uint256 tFees) = _calculateFees(from, to, amount);
-
-        // Transfer fees if needed
-        if (tFees > 0) {
-            require(
-                super.transfer(address(dynamicFeeManager()), tFees),
-                "WeSendit: Failed to transfer fees"
-            );
-
-            // Reflect fees
-            _reflectFees(from, to, amount);
-        }
-
+        // Execute normal transfer
         return super.transfer(to, tTotal);
     }
 
@@ -77,64 +60,19 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
         address to,
         uint256 amount
     ) public virtual override returns (bool) {
-        // Calculate applied fees
-        (uint256 tTotal, uint256 tFees) = _calculateFees(from, to, amount);
+        // Reflect fees
+        (uint256 tTotal, ) = _reflectFees(from, to, amount);
 
-        // Transfer fees if needed
-        if (tFees > 0) {
-            require(
-                super.transferFrom(from, address(dynamicFeeManager()), tFees),
-                "WeSendit: Failed to transfer fees"
-            );
-
-            // Reflect fees
-            _reflectFees(from, to, amount);
-        }
-
+        // Execute normal transfer
         return super.transferFrom(from, to, tTotal);
     }
 
-    /**
-     * Calculates fees using the dynamic fee manager
-     *
-     * @param from address - Sender address
-     * @param to address - Receiver address
-     * @param amount uint256 - Transaction amount
-     *
-     * @return tTotal - Transaction amount without fee
-     * @return tFees - Fee amount
-     */
-    function _calculateFees(
+    function transferFromNoFees(
         address from,
         address to,
         uint256 amount
-    ) private view returns (uint256 tTotal, uint256 tFees) {
-        /**
-         * Only apply fees if:
-         * - fees are enabled
-         * - sender is not owner
-         * - sender is not admin
-         * - sender is not on whitelist
-         * - receiver is not on receiver whitelist
-         */
-        if (
-            feesEnabled() &&
-            from != owner() &&
-            !hasRole(ADMIN, from) &&
-            !hasRole(FEE_WHITELIST, from) &&
-            !hasRole(RECEIVER_FEE_WHITELIST, to)
-        ) {
-            (tTotal, tFees) = dynamicFeeManager().calculateFees(
-                from,
-                to,
-                amount
-            );
-        } else {
-            tTotal = amount;
-            tFees = 0;
-        }
-
-        return (tTotal, tFees);
+    ) public virtual override onlyRole(ADMIN) returns (bool) {
+        return super.transferFrom(from, to, amount);
     }
 
     /**
@@ -148,14 +86,22 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
         address from,
         address to,
         uint256 amount
-    ) private {
-        dynamicFeeManager().reflectFees(
-            address(this),
-            from,
-            to,
-            amount,
-            hasRole(ADMIN, from) || hasRole(BYPASS_SWAP_AND_LIQUIFY, from)
-        );
+    ) private returns (uint256 tTotal, uint256 tFees) {
+        if (address(dynamicFeeManager()) == address(0)) {
+            return (amount, 0);
+        } else {
+            // Allow dynamic fee manager to spent amount for fees if needed
+            _approve(from, address(dynamicFeeManager()), amount);
+
+            // Reflect fees
+            return
+                dynamicFeeManager().reflectFees(
+                    address(this),
+                    from,
+                    to,
+                    amount
+                );
+        }
     }
 
     /**

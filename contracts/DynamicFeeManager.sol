@@ -29,17 +29,23 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         bool doCallback,
         bool doLiquify,
         bool doSwapForBusd,
-        uint256 swapOrLiquifyAmount
+        uint256 swapOrLiquifyAmount,
+        uint256 validUntil
     ) public override onlyRole(ADMIN) returns (uint256 index) {
         require(
             percentage <= FEE_DIVIDER,
             "DynamicFeeManager: Invalid fee percentage"
         );
         require(
-            (doLiquify == false && doSwapForBusd == false) ||
-                doLiquify != doSwapForBusd,
+            !(doLiquify && doSwapForBusd),
             "DynamicFeeManager: Cannot enable liquify and swap at the same time"
         );
+
+        // TODO: add percentage limit
+        // * -> Dex
+        // * -> Dex
+        // * -> Dex
+        // Brian -> DEX
 
         bytes32 id = _generateIdentifier(
             destination,
@@ -57,7 +63,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             doCallback,
             doLiquify,
             doSwapForBusd,
-            swapOrLiquifyAmount
+            swapOrLiquifyAmount,
+            validUntil
         );
 
         _fees.push(feeEntry);
@@ -71,7 +78,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             doCallback,
             doLiquify,
             doSwapForBusd,
-            swapOrLiquifyAmount
+            swapOrLiquifyAmount,
+            validUntil
         );
 
         // Return entry index
@@ -101,8 +109,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         for (uint256 i = 0; i < _fees.length; i++) {
             FeeEntry memory fee = _fees[i];
 
-            uint256 tFee = _calculateFee(amount, fee);
-            if (_isFeeEntryMatching(fee, from, to)) {
+            if (_isFeeEntryValid(fee) && _isFeeEntryMatching(fee, from, to)) {
+                uint256 tFee = _calculateFee(amount, fee);
                 tFees = tFees.add(tFee);
             }
         }
@@ -124,8 +132,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         for (uint256 i = 0; i < _fees.length; i++) {
             FeeEntry memory fee = _fees[i];
 
-            uint256 tFee = _calculateFee(amount, fee);
-            if (_isFeeEntryMatching(fee, from, to)) {
+            if (_isFeeEntryValid(fee) && _isFeeEntryMatching(fee, from, to)) {
+                uint256 tFee = _calculateFee(amount, fee);
                 tFees = tFees.add(tFee);
                 _reflectFee(token, from, to, tFee, fee, bypassSwapAndLiquify);
             }
@@ -156,9 +164,15 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
     ) private {
         // Transfer fee or add to liquify / swap amount
         if (!fee.doLiquify && !fee.doSwapForBusd) {
-            require(IERC20(token).transfer(fee.destination, tFee));
+            require(
+                IERC20(token).transfer(fee.destination, tFee),
+                "DynamicFeeManager: Fee transfer to destination failed"
+            );
         } else {
-            require(IERC20(token).transfer(address(this), tFee));
+            require(
+                IERC20(token).transfer(address(this), tFee),
+                "DynamicFeeManager: Fee transfer to manager failed"
+            );
             _amounts[fee.id] = _amounts[fee.id].add(tFee);
         }
 
@@ -206,7 +220,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             fee.doCallback,
             fee.doLiquify,
             fee.doSwapForBusd,
-            fee.swapOrLiquifyAmount
+            fee.swapOrLiquifyAmount,
+            fee.validUntil
         );
     }
 
@@ -338,6 +353,21 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             destination,
             block.timestamp
         );
+    }
+
+    /**
+     * Checks if the fee entry is still valid
+     *
+     * @param fee FeeEntry - Fee Entry
+     *
+     * @return isValid bool - Indicates, if the fee entry is still valid
+     */
+    function _isFeeEntryValid(FeeEntry memory fee)
+        private
+        view
+        returns (bool isValid)
+    {
+        return fee.validUntil == 0 || block.timestamp <= fee.validUntil;
     }
 
     /**

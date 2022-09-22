@@ -8,6 +8,7 @@ import { MockContract, smock } from '@defi-wonderland/smock';
 import { MockFeeReceiver } from "../typechain/MockFeeReceiver";
 import { BigNumberish } from "ethers";
 import { parseEther } from "ethers/lib/utils";
+import moment from 'moment'
 
 chai.should();
 chai.use(smock.matchers);
@@ -22,7 +23,8 @@ export const getFeeEntryArgs = (args?: {
   doCallback?: boolean,
   doLiquify?: boolean,
   doSwapForBusd?: boolean,
-  swapOrLiquifyAmount?: BigNumberish
+  swapOrLiquifyAmount?: BigNumberish,
+  validUntil?: BigNumberish
 }): Parameters<typeof DynamicFeeManager.prototype.addFee> => {
   return [
     args?.from ?? WHITELIST_ADDRESS,
@@ -32,7 +34,8 @@ export const getFeeEntryArgs = (args?: {
     args?.doCallback ?? false,
     args?.doLiquify ?? false,
     args?.doSwapForBusd ?? false,
-    args?.swapOrLiquifyAmount ?? 0
+    args?.swapOrLiquifyAmount ?? 0,
+    args?.validUntil ?? 0
   ]
 }
 
@@ -199,7 +202,8 @@ describe("Dynamic Fee Manager", function () {
             doCallback: true,
             doLiquify: true,
             doSwapForBusd: false,
-            swapOrLiquifyAmount: 5678
+            swapOrLiquifyAmount: 5678,
+            validUntil: 9123
           })
         )
 
@@ -214,6 +218,7 @@ describe("Dynamic Fee Manager", function () {
         expect(fee.doLiquify).to.be.true
         expect(fee.doSwapForBusd).to.be.false
         expect(fee.swapOrLiquifyAmount).to.equal(5678)
+        expect(fee.validUntil).to.equal(9123)
       })
 
       it('should get fee at index (2)', async function () {
@@ -227,7 +232,8 @@ describe("Dynamic Fee Manager", function () {
             doCallback: true,
             doLiquify: false,
             doSwapForBusd: true,
-            swapOrLiquifyAmount: 5678
+            swapOrLiquifyAmount: 5678,
+            validUntil: 9123
           })
         )
 
@@ -242,6 +248,7 @@ describe("Dynamic Fee Manager", function () {
         expect(fee.doLiquify).to.be.false
         expect(fee.doSwapForBusd).to.be.true
         expect(fee.swapOrLiquifyAmount).to.equal(5678)
+        expect(fee.validUntil).to.equal(9123)
       })
     })
 
@@ -250,8 +257,11 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs())
 
+        // Act & Assert
+        await expect(contract.removeFee(0)).to.not.be.reverted
+
         // Assert
-        await contract.removeFee(0)
+        await expect(contract.getFee(0)).to.be.reverted
       })
 
       it('should fail to remove fee at index as non-owner', async function () {
@@ -285,6 +295,40 @@ describe("Dynamic Fee Manager", function () {
         // Assert
         const feeAfter = await contract.getFee(1)
         expect(feeAfter.percentage).to.equal(3)
+        await expect(contract.getFee(2)).to.be.reverted
+      })
+
+      it('should remove all fee if multiple fees added (1)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ percentage: 1 }))
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2 }))
+        await contract.addFee(...getFeeEntryArgs({ percentage: 3 }))
+
+        // Act & Assert
+        await expect(contract.removeFee(2)).to.not.be.reverted
+        await expect(contract.removeFee(1)).to.not.be.reverted
+        await expect(contract.removeFee(0)).to.not.be.reverted
+
+        // Assert
+        await expect(contract.getFee(0)).to.be.reverted
+        await expect(contract.getFee(1)).to.be.reverted
+        await expect(contract.getFee(2)).to.be.reverted
+      })
+
+      it('should remove all fee if multiple fees added (2)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ percentage: 1 }))
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2 }))
+        await contract.addFee(...getFeeEntryArgs({ percentage: 3 }))
+
+        // Act & Assert
+        await expect(contract.removeFee(0)).to.not.be.reverted
+        await expect(contract.removeFee(0)).to.not.be.reverted
+        await expect(contract.removeFee(0)).to.not.be.reverted
+
+        // Assert
+        await expect(contract.getFee(0)).to.be.reverted
+        await expect(contract.getFee(1)).to.be.reverted
         await expect(contract.getFee(2)).to.be.reverted
       })
     })
@@ -477,6 +521,69 @@ describe("Dynamic Fee Manager", function () {
         bob.address,
         parseEther('100')
       )).to.be.reverted
+    })
+
+    it('should calculate correct fee for single time relevant entry', async function () {
+      // Arrange
+      const blockTimestamp = await getBlockTimestamp()
+      const validUntil = moment.unix(blockTimestamp).add(10, 'seconds').unix()
+
+      await contract.addFee(...getFeeEntryArgs({ percentage: 10000, validUntil })) // 10%
+
+      // Act
+      const res = await contract.calculateFees(
+        alice.address,
+        bob.address,
+        parseEther('100')
+      )
+
+      // Assert
+      expect(res[0]).to.equal(parseEther('90'))
+      expect(res[1]).to.equal(parseEther('10'))
+    })
+
+    it('should calculate correct fee for time relevant entries (1)', async function () {
+      // Arrange
+      const blockTimestamp = await getBlockTimestamp()
+      const validUntil = moment.unix(blockTimestamp).add(10, 'seconds').unix()
+
+      await contract.addFee(...getFeeEntryArgs({ percentage: 10000, validUntil })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ percentage: 5000, validUntil: blockTimestamp })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ percentage: 7500, validUntil: blockTimestamp })) // 7.5%
+      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 2500, validUntil })) // 2.5%
+
+      // Act
+      const res = await contract.calculateFees(
+        alice.address,
+        bob.address,
+        parseEther('100')
+      )
+
+      // Assert
+      expect(res[0]).to.equal(parseEther('87.5'))
+      expect(res[1]).to.equal(parseEther('12.5'))
+    })
+
+    it('should calculate correct fee for time relevant entries (2)', async function () {
+      // Arrange
+      const blockTimestamp = await getBlockTimestamp()
+      const validUntil = moment.unix(blockTimestamp).add(10, 'seconds').unix()
+
+      await contract.addFee(...getFeeEntryArgs({ percentage: 10000, validUntil })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ percentage: 5000, validUntil })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ percentage: 7500, validUntil })) // 7.5%
+      await contract.addFee(...getFeeEntryArgs({ to: bob.address, percentage: 2500, validUntil })) // 2.5%
+
+      // Act
+      const res = await contract.calculateFees(
+        alice.address,
+        bob.address,
+        parseEther('100')
+      )
+
+      // Assert
+      expect(res[0]).to.equal(parseEther('75'))
+      expect(res[1]).to.equal(parseEther('25'))
     })
   })
 

@@ -27,6 +27,8 @@ struct FeeEntry {
     bool doSwapForBusd;
     // Amount used to add liquidation OR swap to BUSD
     uint256 swapOrLiquifyAmount;
+    // Timestamp after which the fee won't be applied anymore
+    uint256 validUntil;
 }
 
 interface IDynamicFeeManager {
@@ -42,17 +44,19 @@ interface IDynamicFeeManager {
      * @param doLiquify bool - Indicates, if the fee amount should be used to add liquidy on DEX
      * @param doSwapForBusd bool - Indicates, if the fee amount should be swapped to BUSD
      * @param swapOrLiquifyAmount uint256 - Amount for liquidify or swap
+     * @param validUntil uint256 - Timestamp after which the fee won't be applied anymore
      */
     event FeeAdded(
-        bytes32 id,
-        address from,
+        bytes32 indexed id,
+        address indexed from,
         address to,
         uint256 percentage,
-        address destination,
+        address indexed destination,
         bool doCallback,
         bool doLiquify,
         bool doSwapForBusd,
-        uint256 swapOrLiquifyAmount
+        uint256 swapOrLiquifyAmount,
+        uint256 validUntil
     );
 
     /**
@@ -61,7 +65,7 @@ interface IDynamicFeeManager {
      * @param id bytes32 - "Unique" identifier for fee entry
      * @param index uint256 - Index of removed the fee
      */
-    event FeeRemoved(bytes32 id, uint256 index);
+    event FeeRemoved(bytes32 indexed id, uint256 index);
 
     /**
      * Emitted on fee reflection / distribution
@@ -75,18 +79,20 @@ interface IDynamicFeeManager {
      * @param doLiquify bool - Indicates, if the fee amount should be used to add liquidy on DEX
      * @param doSwapForBusd bool - Indicates, if the fee amount should be swapped to BUSD
      * @param swapOrLiquifyAmount uint256 - Amount for liquidify or swap
+     * @param validUntil uint256 - Timestamp after which the fee won't be applied anymore
      */
     event FeeReflected(
-        bytes32 id,
+        bytes32 indexed id,
         address token,
-        address from,
+        address indexed from,
         address to,
         uint256 tFee,
-        address destination,
+        address indexed destination,
         bool doCallback,
         bool doLiquify,
         bool doSwapForBusd,
-        uint256 swapOrLiquifyAmount
+        uint256 swapOrLiquifyAmount,
+        uint256 validUntil
     );
 
     /**
@@ -128,7 +134,7 @@ interface IDynamicFeeManager {
         address token,
         uint256 inputAmount,
         uint256 newBalance,
-        address destination
+        address indexed destination
     );
 
     /**
@@ -143,14 +149,15 @@ interface IDynamicFeeManager {
     /**
      * Adds a fee entry to the list of fees
      *
-     * @param from address - Sender address OR address(0) for wildcard
-     * @param to address - Receiver address OR address(0) for wildcard
+     * @param from address - Sender address OR wildcard address
+     * @param to address - Receiver address OR wildcard address
      * @param percentage uint256 - Fee percentage to take multiplied by 100000
      * @param destination address - Destination address for the fee
      * @param doCallback bool - Indicates, if a callback should be called at the fee destination
      * @param doLiquify bool - Indicates, if the fee amount should be used to add liquidy on DEX
      * @param doSwapForBusd bool - Indicates, if the fee amount should be swapped to BUSD
      * @param swapOrLiquifyAmount uint256 - Amount for liquidify or swap
+     * @param validUntil uint256 - Timestamp after which the fee won't be applied anymore
      *
      * @return index uint256 - Index of the newly added fee entry
      */
@@ -162,7 +169,8 @@ interface IDynamicFeeManager {
         bool doCallback,
         bool doLiquify,
         bool doSwapForBusd,
-        uint256 swapOrLiquifyAmount
+        uint256 swapOrLiquifyAmount,
+        uint256 validUntil
     ) external returns (uint256 index);
 
     /**

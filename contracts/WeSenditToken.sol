@@ -45,6 +45,11 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
     {
         address from = _msgSender();
 
+        // TODO: move calculate + reflection -> processFees on fee manager
+        // Call "internal" transfer function on token
+        // Move whitelist to fee manager
+        // Add check for fee manager == 0x
+
         // Calculate applied fees
         (uint256 tTotal, uint256 tFees) = _calculateFees(from, to, amount);
 

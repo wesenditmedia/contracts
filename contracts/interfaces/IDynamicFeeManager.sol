@@ -28,7 +28,7 @@ struct FeeEntry {
     // Amount used to add liquidation OR swap to BUSD
     uint256 swapOrLiquifyAmount;
     // Timestamp after which the fee won't be applied anymore
-    uint256 validUntil;
+    uint256 expiresAt;
 }
 
 interface IDynamicFeeManager {
@@ -44,7 +44,7 @@ interface IDynamicFeeManager {
      * @param doLiquify bool - Indicates, if the fee amount should be used to add liquidy on DEX
      * @param doSwapForBusd bool - Indicates, if the fee amount should be swapped to BUSD
      * @param swapOrLiquifyAmount uint256 - Amount for liquidify or swap
-     * @param validUntil uint256 - Timestamp after which the fee won't be applied anymore
+     * @param expiresAt uint256 - Timestamp after which the fee won't be applied anymore
      */
     event FeeAdded(
         bytes32 indexed id,
@@ -56,7 +56,7 @@ interface IDynamicFeeManager {
         bool doLiquify,
         bool doSwapForBusd,
         uint256 swapOrLiquifyAmount,
-        uint256 validUntil
+        uint256 expiresAt
     );
 
     /**
@@ -79,7 +79,7 @@ interface IDynamicFeeManager {
      * @param doLiquify bool - Indicates, if the fee amount should be used to add liquidy on DEX
      * @param doSwapForBusd bool - Indicates, if the fee amount should be swapped to BUSD
      * @param swapOrLiquifyAmount uint256 - Amount for liquidify or swap
-     * @param validUntil uint256 - Timestamp after which the fee won't be applied anymore
+     * @param expiresAt uint256 - Timestamp after which the fee won't be applied anymore
      */
     event FeeReflected(
         bytes32 indexed id,
@@ -92,7 +92,7 @@ interface IDynamicFeeManager {
         bool doLiquify,
         bool doSwapForBusd,
         uint256 swapOrLiquifyAmount,
-        uint256 validUntil
+        uint256 expiresAt
     );
 
     /**
@@ -164,7 +164,7 @@ interface IDynamicFeeManager {
      * @param doLiquify bool - Indicates, if the fee amount should be used to add liquidy on DEX
      * @param doSwapForBusd bool - Indicates, if the fee amount should be swapped to BUSD
      * @param swapOrLiquifyAmount uint256 - Amount for liquidify or swap
-     * @param validUntil uint256 - Timestamp after which the fee won't be applied anymore
+     * @param expiresAt uint256 - Timestamp after which the fee won't be applied anymore
      *
      * @return index uint256 - Index of the newly added fee entry
      */
@@ -177,7 +177,7 @@ interface IDynamicFeeManager {
         bool doLiquify,
         bool doSwapForBusd,
         uint256 swapOrLiquifyAmount,
-        uint256 validUntil
+        uint256 expiresAt
     ) external returns (uint256 index);
 
     /**

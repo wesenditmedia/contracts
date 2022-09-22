@@ -30,7 +30,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         bool doLiquify,
         bool doSwapForBusd,
         uint256 swapOrLiquifyAmount,
-        uint256 validUntil
+        uint256 expiresAt
     ) public override onlyRole(ADMIN) returns (uint256 index) {
         require(
             percentage <= FEE_DIVIDER,
@@ -64,7 +64,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             doLiquify,
             doSwapForBusd,
             swapOrLiquifyAmount,
-            validUntil
+            expiresAt
         );
 
         _fees.push(feeEntry);
@@ -79,7 +79,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             doLiquify,
             doSwapForBusd,
             swapOrLiquifyAmount,
-            validUntil
+            expiresAt
         );
 
         // Return entry index
@@ -222,7 +222,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             fee.doLiquify,
             fee.doSwapForBusd,
             fee.swapOrLiquifyAmount,
-            fee.validUntil
+            fee.expiresAt
         );
     }
 
@@ -368,7 +368,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         view
         returns (bool isValid)
     {
-        return fee.validUntil == 0 || block.timestamp <= fee.validUntil;
+        return fee.expiresAt == 0 || block.timestamp <= fee.expiresAt;
     }
 
     /**

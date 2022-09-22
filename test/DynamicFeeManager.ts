@@ -24,7 +24,7 @@ export const getFeeEntryArgs = (args?: {
   doLiquify?: boolean,
   doSwapForBusd?: boolean,
   swapOrLiquifyAmount?: BigNumberish,
-  validUntil?: BigNumberish
+  expiresAt?: BigNumberish
 }): Parameters<typeof DynamicFeeManager.prototype.addFee> => {
   return [
     args?.from ?? WHITELIST_ADDRESS,
@@ -35,7 +35,7 @@ export const getFeeEntryArgs = (args?: {
     args?.doLiquify ?? false,
     args?.doSwapForBusd ?? false,
     args?.swapOrLiquifyAmount ?? 0,
-    args?.validUntil ?? 0
+    args?.expiresAt ?? 0
   ]
 }
 
@@ -221,7 +221,7 @@ describe("Dynamic Fee Manager", function () {
             doLiquify: true,
             doSwapForBusd: false,
             swapOrLiquifyAmount: 5678,
-            validUntil: 9123
+            expiresAt: 9123
           })
         )
 
@@ -236,7 +236,7 @@ describe("Dynamic Fee Manager", function () {
         expect(fee.doLiquify).to.be.true
         expect(fee.doSwapForBusd).to.be.false
         expect(fee.swapOrLiquifyAmount).to.equal(5678)
-        expect(fee.validUntil).to.equal(9123)
+        expect(fee.expiresAt).to.equal(9123)
       })
 
       it('should get fee at index (2)', async function () {
@@ -251,7 +251,7 @@ describe("Dynamic Fee Manager", function () {
             doLiquify: false,
             doSwapForBusd: true,
             swapOrLiquifyAmount: 5678,
-            validUntil: 9123
+            expiresAt: 9123
           })
         )
 
@@ -266,7 +266,7 @@ describe("Dynamic Fee Manager", function () {
         expect(fee.doLiquify).to.be.false
         expect(fee.doSwapForBusd).to.be.true
         expect(fee.swapOrLiquifyAmount).to.equal(5678)
-        expect(fee.validUntil).to.equal(9123)
+        expect(fee.expiresAt).to.equal(9123)
       })
     })
 
@@ -551,9 +551,9 @@ describe("Dynamic Fee Manager", function () {
     it('should calculate correct fee for single time relevant entry', async function () {
       // Arrange
       const blockTimestamp = await getBlockTimestamp()
-      const validUntil = moment.unix(blockTimestamp).add(10, 'seconds').unix()
+      const expiresAt = moment.unix(blockTimestamp).add(10, 'seconds').unix()
 
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, validUntil })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, expiresAt })) // 10%
 
       // Act
       await contract.reflectFees(
@@ -570,12 +570,12 @@ describe("Dynamic Fee Manager", function () {
     it('should calculate correct fee for time relevant entries (1)', async function () {
       // Arrange
       const blockTimestamp = await getBlockTimestamp()
-      const validUntil = moment.unix(blockTimestamp).add(10, 'seconds').unix()
+      const expiresAt = moment.unix(blockTimestamp).add(10, 'seconds').unix()
 
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, validUntil })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 5000, validUntil: blockTimestamp })) // 5%
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 7500, validUntil: blockTimestamp })) // 7.5%
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 2500, validUntil })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, expiresAt })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 5000, expiresAt: blockTimestamp })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 7500, expiresAt: blockTimestamp })) // 7.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 2500, expiresAt })) // 2.5%
 
       // Act
       await contract.reflectFees(
@@ -592,12 +592,12 @@ describe("Dynamic Fee Manager", function () {
     it('should calculate correct fee for time relevant entries (2)', async function () {
       // Arrange
       const blockTimestamp = await getBlockTimestamp()
-      const validUntil = moment.unix(blockTimestamp).add(10, 'seconds').unix()
+      const expiresAt = moment.unix(blockTimestamp).add(10, 'seconds').unix()
 
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, validUntil })) // 10%
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 5000, validUntil })) // 5%
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 7500, validUntil })) // 7.5%
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 2500, validUntil })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, expiresAt })) // 10%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 5000, expiresAt })) // 5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 7500, expiresAt })) // 7.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, to: bob.address, percentage: 2500, expiresAt })) // 2.5%
 
       // Act
       await contract.reflectFees(

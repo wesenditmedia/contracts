@@ -103,7 +103,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         address from,
         address to,
         uint256 amount
-    ) public override returns (uint256 tTotal, uint256 tFees) {
+    ) public override nonReentrant returns (uint256 tTotal, uint256 tFees) {
         bool bypassFees = !feesEnabled() ||
             from == owner() ||
             hasRole(ADMIN, from) ||
@@ -238,7 +238,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         address token,
         uint256 amount,
         address destination
-    ) private nonReentrant {
+    ) private {
         // split the contract balance into halves
         uint256 half = amount.div(2);
         uint256 otherHalf = amount.sub(half);
@@ -278,7 +278,10 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         path[0] = token;
         path[1] = pancakeRouter().WETH();
 
-        IERC20(token).approve(address(pancakeRouter()), amount);
+        require(
+            IERC20(token).approve(address(pancakeRouter()), amount),
+            "DynamicFeeManager: Failed to approve token for swap BNB"
+        );
 
         // make the swap
         pancakeRouter().swapExactTokensForETHSupportingFeeOnTransferTokens(
@@ -307,7 +310,10 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         path[0] = token;
         path[1] = busdAddress();
 
-        IERC20(token).approve(address(pancakeRouter()), amount);
+        require(
+            IERC20(token).approve(address(pancakeRouter()), amount),
+            "DynamicFeeManager: Failed to approve token for swap to BUSD"
+        );
 
         // capture the contract's current BUSD balance.
         uint256 initialBalance = IERC20(token).balanceOf(destination);
@@ -344,7 +350,10 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         address destination
     ) private {
         // approve token transfer to cover all possible scenarios
-        IERC20(token).approve(address(pancakeRouter()), tokenAmount);
+        require(
+            IERC20(token).approve(address(pancakeRouter()), tokenAmount),
+            "DynamicFeeManager: Failed to approve token for adding liquidity"
+        );
 
         // add the liquidity
         pancakeRouter().addLiquidityETH{value: bnbAmount}(

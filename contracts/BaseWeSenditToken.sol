@@ -13,8 +13,8 @@ abstract contract BaseWeSenditToken is
     AccessControlEnumerable,
     Ownable
 {
-    uint256 public constant INITIAL_SUPPLY = 37500000 * 1 ether;
-    uint256 public constant TOTAL_SUPPLY = 1500000000 * 1 ether;
+    uint256 public constant INITIAL_SUPPLY = 37500000 ether;
+    uint256 public constant TOTAL_SUPPLY = 1500000000 ether;
 
     // Role allowed to do admin operations like adding to fee whitelist, withdraw, etc.
     bytes32 public constant ADMIN = keccak256("ADMIN");
@@ -24,8 +24,6 @@ abstract contract BaseWeSenditToken is
 
     uint256 private _minTxAmount = 0;
     bool private _paused = false;
-    bool private _swapAndLiquifyEnabled = false;
-    uint256 private _swapAndLiquifyBalance = 0;
     IDynamicFeeManager private _dynamicFeeManager;
 
     constructor() {

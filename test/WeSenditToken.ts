@@ -161,6 +161,27 @@ describe("WeSendit", function () {
         )
       })
     })
+
+    describe('transferFromNoFees()', function () {
+      it('should do transfer without fees', async function () {
+        // Arrange
+        await contract.connect(alice).approve(owner.address, parseEther('100'))
+
+        // Act
+        await contract.transferFromNoFees(alice.address, bob.address, parseEther('100'))
+
+        // Assert
+        expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
+        expect(await contract.balanceOf(bob.address)).to.equal(parseEther('100'))
+      })
+
+      it('should fail to transfer without fees if no admin role', async function () {
+        // Act & Assert
+        await expect(
+          contract.connect(alice).transferFromNoFees(alice.address, bob.address, parseEther('100'))
+        ).to.be.reverted
+      })
+    })
   })
 
   describe('Minimum TX Amount', function () {

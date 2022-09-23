@@ -73,6 +73,7 @@ describe("WeSendit", function () {
       await contract.connect(supply).transfer(alice.address, parseEther('100'))
       await contract.connect(supply).transfer(owner.address, parseEther('100'))
       await contract.setDynamicFeeManager(mockDynamicFeeManager.address)
+      await mockDynamicFeeManager.setFeesEnabled(true)
     })
 
     describe('transfer()', function () {
@@ -105,7 +106,8 @@ describe("WeSendit", function () {
         await contract.connect(alice).transfer(bob.address, parseEther('100'))
 
         // Assert
-        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('100'))
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('90'))
+        expect(await contract.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
           contract.address,
@@ -151,7 +153,8 @@ describe("WeSendit", function () {
         await contract.transferFrom(alice.address, bob.address, parseEther('100'))
 
         // Assert
-        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('100'))
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('90'))
+        expect(await contract.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
           contract.address,
@@ -166,6 +169,7 @@ describe("WeSendit", function () {
       it('should do transfer without fees', async function () {
         // Arrange
         await contract.connect(alice).approve(owner.address, parseEther('100'))
+        await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ percentage: 10000, destination: addrs[0].address })) // 10%
 
         // Act
         await contract.transferFromNoFees(alice.address, bob.address, parseEther('100'))
@@ -173,6 +177,8 @@ describe("WeSendit", function () {
         // Assert
         expect(mockDynamicFeeManager.reflectFees).to.have.not.been.called
         expect(await contract.balanceOf(bob.address)).to.equal(parseEther('100'))
+        expect(await contract.balanceOf(addrs[0].address)).to.equal(0)
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
       })
 
       it('should fail to transfer without fees if no admin role', async function () {

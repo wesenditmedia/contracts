@@ -70,6 +70,7 @@ describe("Dynamic Fee Manager", function () {
   let FEE_WHITELIST_ROLE: string
   let RECEIVER_FEE_WHITELIST_ROLE: string
   let BYPASS_SWAP_AND_LIQUIFY_ROLE: string
+  let EXCLUDE_WILDCARD_FEE_ROLE: string
 
   let FEE_PERCENTAGE_LIMIT: BigNumber
   let TRANSACTION_FEE_LIMIT: BigNumber
@@ -102,17 +103,20 @@ describe("Dynamic Fee Manager", function () {
     FEE_WHITELIST_ROLE = await contract.FEE_WHITELIST()
     RECEIVER_FEE_WHITELIST_ROLE = await contract.RECEIVER_FEE_WHITELIST()
     BYPASS_SWAP_AND_LIQUIFY_ROLE = await contract.BYPASS_SWAP_AND_LIQUIFY()
+    EXCLUDE_WILDCARD_FEE_ROLE = await contract.EXCLUDE_WILDCARD_FEE()
 
     FEE_PERCENTAGE_LIMIT = await contract.FEE_PERCENTAGE_LIMIT()
     TRANSACTION_FEE_LIMIT = await contract.TRANSACTION_FEE_LIMIT()
 
     await mockWsi.unpause()
+    await mockWsi.setDynamicFeeManager(contract.address)
     await mockWsi.grantRole(await mockWsi.ADMIN(), contract.address)
-    // await mockWsi.setDynamicFeeManager(contract.address)
 
     await contract.setFeesEnabled(true)
     await contract.setPancakeRouter(mockPancakeRouter.address)
     await contract.setBusdAddress(mockBusd.address)
+    await contract.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, mockPancakePair.address)
+    await contract.grantRole(EXCLUDE_WILDCARD_FEE_ROLE, mockPancakePair.address)
   });
 
   describe("Deployment", function () {
@@ -133,6 +137,7 @@ describe("Dynamic Fee Manager", function () {
       expect(await contract.getRoleAdmin(FEE_WHITELIST_ROLE)).to.equal(ADMIN_ROLE)
       expect(await contract.getRoleAdmin(RECEIVER_FEE_WHITELIST_ROLE)).to.equal(ADMIN_ROLE)
       expect(await contract.getRoleAdmin(BYPASS_SWAP_AND_LIQUIFY_ROLE)).to.equal(ADMIN_ROLE)
+      expect(await contract.getRoleAdmin(EXCLUDE_WILDCARD_FEE_ROLE)).to.equal(ADMIN_ROLE)
     })
   });
 
@@ -697,10 +702,10 @@ describe("Dynamic Fee Manager", function () {
         expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('1.75'))
       })
 
-      it('should reflect relevant fees', async function () {
+      it('should reflect relevant fees (1)', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1% (matches)
-        await contract.addFee(...getFeeEntryArgs({ from: bob.address, destination: addrs[0].address, percentage: 100 })) // 0.15%
+        await contract.addFee(...getFeeEntryArgs({ from: bob.address, destination: addrs[0].address, percentage: 100 })) // 0.1%
         await contract.addFee(...getFeeEntryArgs({ to: bob.address, destination: addrs[0].address, percentage: 250 })) // 0.25% (matches)
         await contract.addFee(...getFeeEntryArgs({ from: alice.address, destination: addrs[0].address, percentage: 350 })) // 0.35% (matches)
         await contract.addFee(...getFeeEntryArgs({ to: alice.address, destination: addrs[0].address, percentage: 450 })) // 0.45%
@@ -717,6 +722,26 @@ describe("Dynamic Fee Manager", function () {
         expect(mockWsi.transferFromNoFees).to.have.been.calledThrice
         expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('98.4'))
         expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('1.6'))
+      })
+
+      it('should reflect relevant fees (2)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1% (matches)
+        await contract.addFee(...getFeeEntryArgs({ from: alice.address, to: bob.address, destination: addrs[0].address, percentage: 100 })) // 0.1% (matches)
+        await contract.addFee(...getFeeEntryArgs({ from: bob.address, destination: addrs[0].address, percentage: 100 })) // 0.1%
+
+        // Act
+        await contract.connect(alice).reflectFees(
+          mockWsi.address,
+          alice.address,
+          bob.address,
+          parseEther('100')
+        )
+
+        // Assert
+        expect(mockWsi.transferFromNoFees).to.have.been.calledTwice
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('98.9'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('1.1'))
       })
 
       it('should not reflect fee if sender is owner', async function () {
@@ -1527,6 +1552,500 @@ describe("Dynamic Fee Manager", function () {
         await expect(
           contract.connect(bob).emergencyWithdrawToken(mockWsi.address, parseEther('100'))
         ).to.be.reverted
+      })
+    })
+  })
+
+  describe('Test Scenarios', function () {
+    beforeEach(async function () {
+      await contract.grantRole(EXCLUDE_WILDCARD_FEE_ROLE, mockPancakePair.address)
+      await mockWsi.transfer(alice.address, parseEther('100'))
+    })
+
+    describe('DEX Buy', function () {
+      it('should apply simple fee', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 10000, destination: addrs[0].address })) // 10%
+
+        // Act
+        await mockWsi.connect(alice).approve(mockPancakeRouter.address, parseEther('100'))
+        await mockPancakeRouter.connect(alice).swapExactTokensForETHSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          0,
+          [mockWsi.address, mockBnb.address],
+          alice.address,
+          moment().unix()
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('90'))
+      })
+
+      it('should apply multiple fees', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockWsi.connect(alice).approve(mockPancakeRouter.address, parseEther('100'))
+        await mockPancakeRouter.connect(alice).swapExactTokensForETHSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          0,
+          [mockWsi.address, mockBnb.address],
+          alice.address,
+          moment().unix()
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(addrs[1].address)).to.equal(parseEther('2.5'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('92.5'))
+      })
+
+      it('should apply relevant fees (1)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 2500, destination: addrs[1].address })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockWsi.connect(alice).approve(mockPancakeRouter.address, parseEther('100'))
+        await mockPancakeRouter.connect(alice).swapExactTokensForETHSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          0,
+          [mockWsi.address, mockBnb.address],
+          alice.address,
+          moment().unix()
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(addrs[1].address)).to.equal(parseEther('2.5'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('92.5'))
+      })
+
+      it('should apply relevant fees (2)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 2500, destination: addrs[1].address })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockWsi.connect(alice).approve(mockPancakeRouter.address, parseEther('100'))
+        await mockPancakeRouter.connect(alice).swapExactTokensForETHSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          0,
+          [mockWsi.address, mockBnb.address],
+          alice.address,
+          moment().unix()
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(addrs[1].address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('95'))
+      })
+
+      it('should apply relevant fees (3)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ from: alice.address, percentage: 2500, destination: addrs[0].address })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockWsi.connect(alice).approve(mockPancakeRouter.address, parseEther('100'))
+        await mockPancakeRouter.connect(alice).swapExactTokensForETHSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          0,
+          [mockWsi.address, mockBnb.address],
+          alice.address,
+          moment().unix()
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('95'))
+      })
+
+      it('should apply relevant fees (4)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ to: alice.address, percentage: 2500, destination: addrs[0].address })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockWsi.connect(alice).approve(mockPancakeRouter.address, parseEther('100'))
+        await mockPancakeRouter.connect(alice).swapExactTokensForETHSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          0,
+          [mockWsi.address, mockBnb.address],
+          alice.address,
+          moment().unix()
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('95'))
+      })
+
+      it('should apply relevant fees (5)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ from: alice.address, to: mockPancakePair.address, percentage: 2500, destination: addrs[0].address })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockWsi.connect(alice).approve(mockPancakeRouter.address, parseEther('100'))
+        await mockPancakeRouter.connect(alice).swapExactTokensForETHSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          0,
+          [mockWsi.address, mockBnb.address],
+          alice.address,
+          moment().unix()
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('7.5'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('92.5'))
+      })
+    })
+
+    describe('DEX Sell', function () {
+      beforeEach(async function () {
+        await mockWsi.connect(alice).transfer(mockPancakePair.address, parseEther('100'))
+      })
+
+      it('should apply simple fee', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 10000, destination: addrs[0].address })) // 10%
+
+        // Act
+        await mockPancakeRouter.connect(alice).swapExactETHForTokensSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          [mockBnb.address, mockWsi.address],
+          alice.address,
+          moment().unix(),
+          {
+            value: parseEther('100')
+          }
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('90'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('0'))
+      })
+
+      it('should apply multiple fees', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockPancakeRouter.connect(alice).swapExactETHForTokensSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          [mockBnb.address, mockWsi.address],
+          alice.address,
+          moment().unix(),
+          {
+            value: parseEther('100')
+          }
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('92.5'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(addrs[1].address)).to.equal(parseEther('2.5'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('0'))
+      })
+
+      it('should apply relevant fees (1)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 2500, destination: addrs[1].address })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockPancakeRouter.connect(alice).swapExactETHForTokensSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          [mockBnb.address, mockWsi.address],
+          alice.address,
+          moment().unix(),
+          {
+            value: parseEther('100')
+          }
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('92.5'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(addrs[1].address)).to.equal(parseEther('2.5'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('0'))
+      })
+
+      it('should apply relevant fees (2)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 2500, destination: addrs[1].address })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockPancakeRouter.connect(alice).swapExactETHForTokensSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          [mockBnb.address, mockWsi.address],
+          alice.address,
+          moment().unix(),
+          {
+            value: parseEther('100')
+          }
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('95'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(addrs[1].address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('0'))
+      })
+
+      it('should apply relevant fees (3)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ to: alice.address, percentage: 2500, destination: addrs[0].address })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockPancakeRouter.connect(alice).swapExactETHForTokensSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          [mockBnb.address, mockWsi.address],
+          alice.address,
+          moment().unix(),
+          {
+            value: parseEther('100')
+          }
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('95'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('0'))
+      })
+
+      it('should apply relevant fees (4)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ from: alice.address, percentage: 2500, destination: addrs[0].address })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockPancakeRouter.connect(alice).swapExactETHForTokensSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          [mockBnb.address, mockWsi.address],
+          alice.address,
+          moment().unix(),
+          {
+            value: parseEther('100')
+          }
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('95'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('0'))
+      })
+
+      it('should apply relevant fees (5)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 5000, destination: addrs[0].address })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ to: alice.address, from: mockPancakePair.address, percentage: 2500, destination: addrs[0].address })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[1].address })) // 2.5%
+
+        // Act
+        await mockPancakeRouter.connect(alice).swapExactETHForTokensSupportingFeeOnTransferTokens(
+          parseEther('100'),
+          [mockBnb.address, mockWsi.address],
+          alice.address,
+          moment().unix(),
+          {
+            value: parseEther('100')
+          }
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('92.5'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('7.5'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('0'))
+      })
+    })
+
+    describe('Add Liquidity', function () {
+      it('should apply fee, except for liquify event', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doLiquify: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address })) // 5%
+
+        // Act
+        await mockWsi.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.have.not.been.called
+
+        expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.have.been.calledOnce
+        expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.be.calledWith(
+          parseEther('2.5'),
+          0,
+          [mockWsi.address, mockBnb.address],
+          addrs[0].address,
+          await getBlockTimestamp()
+        )
+
+        expect(mockPancakeRouter.addLiquidityETH).to.have.been.calledOnce
+        expect(mockPancakeRouter.addLiquidityETH).to.be.calledWith(
+          mockWsi.address,
+          parseEther('2.5'),
+          0,
+          0,
+          addrs[0].address,
+          await getBlockTimestamp()
+        )
+
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(bob.address)).to.equal(parseEther('90'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('5'))
+      })
+
+      it('should liquify after threshold is reached', async function () {
+        // Arrange
+        await mockWsi.transfer(alice.address, parseEther('400')) // + 100 = 500 because of beforeEach
+        await mockWsi.transfer(bob.address, parseEther('500'))
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doLiquify: true, swapOrLiquifyAmount: parseEther('25') })) // 5%
+
+        for (let i = 0; i < 2; i++) {
+          // Act
+          await mockWsi.connect(alice).transfer(charlie.address, parseEther('100'))
+
+          // Assert
+          expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.have.not.been.calledOnce
+        }
+
+        for (let i = 0; i < 2; i++) {
+          // Act
+          await mockWsi.connect(bob).transfer(charlie.address, parseEther('100'))
+
+          // Assert
+          expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.have.not.been.calledOnce
+        }
+
+        // Act
+        await mockWsi.connect(alice).transfer(charlie.address, parseEther('100'))
+
+        // Assert
+        expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.have.not.been.called
+
+        expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.have.been.calledOnce
+        expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.be.calledWith(
+          parseEther('12.5'),
+          0,
+          [mockWsi.address, mockBnb.address],
+          addrs[0].address,
+          await getBlockTimestamp()
+        )
+
+        expect(mockPancakeRouter.addLiquidityETH).to.have.been.calledOnce
+        expect(mockPancakeRouter.addLiquidityETH).to.be.calledWith(
+          mockWsi.address,
+          parseEther('12.5'),
+          0,
+          0,
+          addrs[0].address,
+          await getBlockTimestamp()
+        )
+
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('200'))
+        expect(await mockWsi.balanceOf(bob.address)).to.equal(parseEther('300'))
+        expect(await mockWsi.balanceOf(charlie.address)).to.equal(parseEther('475'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('25'))
+      })
+    })
+
+    describe('Swap to BUSD', function () {
+      it('should apply fee, except for swap event', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address })) // 5%
+
+        // Act
+        await mockWsi.connect(alice).transfer(bob.address, parseEther('100'))
+
+        // Assert
+        expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.have.not.been.called
+
+        expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.have.been.calledOnce
+        expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.be.calledWith(
+          parseEther('5'),
+          0,
+          [mockWsi.address, mockBusd.address],
+          addrs[0].address,
+          await getBlockTimestamp()
+        )
+
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('5'))
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(bob.address)).to.equal(parseEther('90'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('5'))
+      })
+
+      it('should swap after threshold is reached', async function () {
+        // Arrange
+        await mockWsi.transfer(alice.address, parseEther('400')) // + 100 = 500 because of beforeEach
+        await mockWsi.transfer(bob.address, parseEther('500'))
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('25') })) // 5%
+
+        for (let i = 0; i < 2; i++) {
+          // Act
+          await mockWsi.connect(alice).transfer(charlie.address, parseEther('100'))
+
+          // Assert
+          expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.have.not.been.calledOnce
+        }
+
+        for (let i = 0; i < 2; i++) {
+          // Act
+          await mockWsi.connect(bob).transfer(charlie.address, parseEther('100'))
+
+          // Assert
+          expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.have.not.been.calledOnce
+        }
+
+        // Act
+        await mockWsi.connect(alice).transfer(charlie.address, parseEther('100'))
+
+        // Assert
+        expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.have.not.been.called
+
+        expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.have.been.calledOnce
+        expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.be.calledWith(
+          parseEther('25'),
+          0,
+          [mockWsi.address, mockBusd.address],
+          addrs[0].address,
+          await getBlockTimestamp()
+        )
+
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('200'))
+        expect(await mockWsi.balanceOf(bob.address)).to.equal(parseEther('300'))
+        expect(await mockWsi.balanceOf(charlie.address)).to.equal(parseEther('475'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('25'))
       })
     })
   })

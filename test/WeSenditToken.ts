@@ -175,7 +175,7 @@ describe("WeSendit", function () {
         // Act
         await mockPancakeRouter.connect(alice).swapExactETHForTokensSupportingFeeOnTransferTokens(
           parseEther('100'),
-          [contract.address, mockBnb.address],
+          [mockBnb.address, contract.address],
           alice.address,
           moment().unix(),
           {

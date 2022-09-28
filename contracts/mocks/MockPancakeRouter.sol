@@ -58,7 +58,7 @@ contract MockPancakeRouter {
         address to,
         uint256 deadline
     ) public payable {
-        MockPancakePair(_pair).swap(path[0], msg.sender, amountOutMin);
+        MockPancakePair(_pair).swap(path[1], msg.sender, amountOutMin);
     }
 
     function swapExactTokensForTokensSupportingFeeOnTransferTokens(

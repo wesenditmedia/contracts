@@ -407,7 +407,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
                 !hasRole(EXCLUDE_WILDCARD_FEE, to)) ||
             (fee.to == to &&
                 fee.from == WHITELIST_ADDRESS &&
-                !hasRole(EXCLUDE_WILDCARD_FEE, from));
+                !hasRole(EXCLUDE_WILDCARD_FEE, from)) ||
+            (fee.to == to && fee.from == from);
     }
 
     /**

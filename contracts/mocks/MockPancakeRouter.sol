@@ -4,15 +4,19 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
+import "./MockPancakePair.sol";
+
 contract MockPancakeRouter {
     using SafeMath for uint256;
 
     event MockEvent(uint256 value);
 
     address private immutable _weth;
+    address private immutable _pair;
 
-    constructor(address weth) {
+    constructor(address weth, address pair) {
         _weth = weth;
+        _pair = pair;
     }
 
     function WETH() public view returns (address) {
@@ -35,11 +39,7 @@ contract MockPancakeRouter {
             uint256 liquidity
         )
     {
-        IERC20(token).transferFrom(
-            msg.sender,
-            address(this),
-            amountTokenDesired
-        );
+        IERC20(token).transferFrom(msg.sender, _pair, amountTokenDesired);
     }
 
     function swapExactTokensForETHSupportingFeeOnTransferTokens(
@@ -49,7 +49,7 @@ contract MockPancakeRouter {
         address to,
         uint256 deadline
     ) public {
-        IERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
+        IERC20(path[0]).transferFrom(msg.sender, _pair, amountIn);
     }
 
     function swapExactETHForTokensSupportingFeeOnTransferTokens(
@@ -57,7 +57,9 @@ contract MockPancakeRouter {
         address[] calldata path,
         address to,
         uint256 deadline
-    ) public payable {}
+    ) public payable {
+        MockPancakePair(_pair).swap(path[0], msg.sender, amountOutMin);
+    }
 
     function swapExactTokensForTokensSupportingFeeOnTransferTokens(
         uint256 amountIn,
@@ -66,6 +68,6 @@ contract MockPancakeRouter {
         address to,
         uint256 deadline
     ) public {
-        IERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
+        IERC20(path[0]).transferFrom(msg.sender, _pair, amountIn);
     }
 }

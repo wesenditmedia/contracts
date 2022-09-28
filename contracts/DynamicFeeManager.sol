@@ -103,7 +103,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         address from,
         address to,
         uint256 amount
-    ) public override nonReentrant returns (uint256 tTotal, uint256 tFees) {
+    ) public override returns (uint256 tTotal, uint256 tFees) {
         bool bypassFees = !feesEnabled() ||
             from == owner() ||
             hasRole(ADMIN, from) ||
@@ -114,7 +114,9 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             return (amount, 0);
         }
 
-        bool bypassSwapAndLiquify = hasRole(ADMIN, from) ||
+        bool bypassSwapAndLiquify = hasRole(ADMIN, to) ||
+            hasRole(ADMIN, from) ||
+            hasRole(BYPASS_SWAP_AND_LIQUIFY, to) ||
             hasRole(BYPASS_SWAP_AND_LIQUIFY, from);
 
         // Loop over all fee entries and calculate plus reflect fee
@@ -238,7 +240,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         address token,
         uint256 amount,
         address destination
-    ) private {
+    ) private nonReentrant {
         // split the contract balance into halves
         uint256 half = amount.div(2);
         uint256 otherHalf = amount.sub(half);
@@ -304,7 +306,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         address token,
         uint256 amount,
         address destination
-    ) private {
+    ) private nonReentrant {
         // generate the uniswap pair path of token -> wbnb
         address[] memory path = new address[](2);
         path[0] = token;
@@ -385,7 +387,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
      * Checks if the fee entry matches
      *
      * @param fee FeeEntry - Fee Entry
-     * @param from address - Sender Address
+     * @param from address - Sender address
      * @param to address - Receiver address
      *
      * @return matching bool - Indicates, if the fee entry and from / to are matching
@@ -394,11 +396,18 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         FeeEntry memory fee,
         address from,
         address to
-    ) private pure returns (bool matching) {
+    ) private view returns (bool matching) {
         return
-            (fee.from == WHITELIST_ADDRESS && fee.to == WHITELIST_ADDRESS) ||
-            (fee.from == from && fee.to == WHITELIST_ADDRESS) ||
-            (fee.to == to && fee.from == WHITELIST_ADDRESS);
+            (fee.from == WHITELIST_ADDRESS &&
+                fee.to == WHITELIST_ADDRESS &&
+                !hasRole(EXCLUDE_WILDCARD_FEE, from) &&
+                !hasRole(EXCLUDE_WILDCARD_FEE, to)) ||
+            (fee.from == from &&
+                fee.to == WHITELIST_ADDRESS &&
+                !hasRole(EXCLUDE_WILDCARD_FEE, to)) ||
+            (fee.to == to &&
+                fee.from == WHITELIST_ADDRESS &&
+                !hasRole(EXCLUDE_WILDCARD_FEE, from));
     }
 
     /**

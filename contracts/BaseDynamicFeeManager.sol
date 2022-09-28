@@ -32,11 +32,15 @@ abstract contract BaseDynamicFeeManager is
     bytes32 public constant BYPASS_SWAP_AND_LIQUIFY =
         keccak256("BYPASS_SWAP_AND_LIQUIFY");
 
+    // Role allowed to bypass wildcard fees
+    bytes32 public constant EXCLUDE_WILDCARD_FEE =
+        keccak256("EXCLUDE_WILDCARD_FEE");
+
     // Fee percentage limit
-    uint256 public constant FEE_PERCENTAGE_LIMIT = 25000; // 25%
+    uint256 public constant FEE_PERCENTAGE_LIMIT = 10000; // 10%
 
     // Transaction fee limit
-    uint256 public constant TRANSACTION_FEE_LIMIT = 25; // 25%
+    uint256 public constant TRANSACTION_FEE_LIMIT = 10; // 10%
 
     // Fee divider
     uint256 internal constant FEE_DIVIDER = 100000;
@@ -70,6 +74,7 @@ abstract contract BaseDynamicFeeManager is
         _setRoleAdmin(FEE_WHITELIST, ADMIN);
         _setRoleAdmin(RECEIVER_FEE_WHITELIST, ADMIN);
         _setRoleAdmin(BYPASS_SWAP_AND_LIQUIFY, ADMIN);
+        _setRoleAdmin(EXCLUDE_WILDCARD_FEE, ADMIN);
     }
 
     /**

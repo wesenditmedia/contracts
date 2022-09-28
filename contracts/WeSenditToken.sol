@@ -119,12 +119,6 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
         address to,
         uint256 amount
     ) private view {
-        // Check for minimum transaction amount
-        require(
-            amount >= minTxAmount(),
-            "WeSendit: amount is less than minTxAmount"
-        );
-
         /**
          * Only allow transfers if:
          * - token is not paused
@@ -134,6 +128,7 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
          */
         require(
             !paused() ||
+                from == address(0) ||
                 from == owner() ||
                 hasRole(ADMIN, from) ||
                 hasRole(BYPASS_PAUSE, from),

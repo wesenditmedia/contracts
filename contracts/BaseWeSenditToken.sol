@@ -22,8 +22,7 @@ abstract contract BaseWeSenditToken is
     // Role allowed to bypass pause
     bytes32 public constant BYPASS_PAUSE = keccak256("BYPASS_PAUSE");
 
-    uint256 private _minTxAmount = 0;
-    bool private _paused = false;
+    bool private _paused = true;
     IDynamicFeeManager private _dynamicFeeManager;
 
     constructor() {
@@ -39,22 +38,13 @@ abstract contract BaseWeSenditToken is
         return INITIAL_SUPPLY;
     }
 
-    function minTxAmount() public view override returns (uint256) {
-        return _minTxAmount;
-    }
-
-    function setMinTxAmount(uint256 value) public override onlyRole(ADMIN) {
-        _minTxAmount = value;
-        emit MinTxAmountUpdated(value);
-    }
-
     function paused() public view override returns (bool) {
         return _paused;
     }
 
-    function setPaused(bool value) public override onlyRole(ADMIN) {
-        _paused = value;
-        emit PausedUpdated(value);
+    function unpause() public override onlyRole(ADMIN) {
+        _paused = false;
+        emit Unpaused();
     }
 
     function dynamicFeeManager()

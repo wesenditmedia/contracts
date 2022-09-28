@@ -6,18 +6,9 @@ import "./IDynamicFeeManager.sol";
 
 interface IWeSenditToken {
     /**
-     * Emitted on minimum transaction amount update
-     *
-     * @param minTxAmount uint256 - New minimum transaction amount
+     * Emitted on transaction unpause
      */
-    event MinTxAmountUpdated(uint256 minTxAmount);
-
-    /**
-     * Emitted on transaction pause update
-     *
-     * @param paused bool - Indicates if the transactions are paused now
-     */
-    event PausedUpdated(bool paused);
+    event Unpaused();
 
     /**
      * Emitted on dynamic fee manager update
@@ -34,20 +25,6 @@ interface IWeSenditToken {
     function initialSupply() external pure returns (uint256 value);
 
     /**
-     * Returns the minimum transaction amount
-     *
-     * @return value uint256 - Minimum transaction amount
-     */
-    function minTxAmount() external view returns (uint256 value);
-
-    /**
-     * Sets the minimum transaction amount
-     *
-     * @param value uint256 - Minimum transaction amount
-     */
-    function setMinTxAmount(uint256 value) external;
-
-    /**
      * Returns true if transactions are pause, false if unpaused
      *
      * @param value bool - Indicates if transactions are paused
@@ -55,11 +32,9 @@ interface IWeSenditToken {
     function paused() external view returns (bool value);
 
     /**
-     * Sets the transaction pause state
-     *
-     * @param value bool - true to pause transactions, false to unpause
+     * Sets the transaction pause state to false and therefor, allowing any transactions
      */
-    function setPaused(bool value) external;
+    function unpause() external;
 
     /**
      * Returns the dynamic fee manager

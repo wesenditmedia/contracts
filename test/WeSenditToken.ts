@@ -116,7 +116,7 @@ describe("WeSendit", function () {
         await contract.connect(alice).transfer(bob.address, parseEther('100'))
 
         // Assert
-        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('100'))
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
           contract.address,
@@ -137,7 +137,7 @@ describe("WeSendit", function () {
         await contract.connect(alice).transfer(bob.address, parseEther('100'))
 
         // Assert
-        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('90'))
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
         expect(await contract.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
@@ -228,7 +228,7 @@ describe("WeSendit", function () {
           await getBlockTimestamp()
         )
 
-        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('90'))
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
         expect(await contract.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
         expect(await contract.balanceOf(alice.address)).to.equal(parseEther('0'))
         expect(await contract.balanceOf(bob.address)).to.equal(parseEther('90'))
@@ -265,7 +265,7 @@ describe("WeSendit", function () {
           await getBlockTimestamp()
         )
 
-        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('90'))
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
         expect(await contract.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
         expect(await contract.balanceOf(alice.address)).to.equal(parseEther('0'))
         expect(await contract.balanceOf(bob.address)).to.equal(parseEther('90'))
@@ -287,7 +287,7 @@ describe("WeSendit", function () {
         await contract.transferFrom(alice.address, bob.address, parseEther('100'))
 
         // Assert
-        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('100'))
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
           contract.address,
@@ -308,7 +308,7 @@ describe("WeSendit", function () {
         await contract.transferFrom(alice.address, bob.address, parseEther('100'))
 
         // Assert
-        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(parseEther('90'))
+        expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
         expect(await contract.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(

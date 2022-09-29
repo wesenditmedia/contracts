@@ -97,13 +97,17 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
             _approve(from, address(dynamicFeeManager()), amount);
 
             // Reflect fees
-            return
-                dynamicFeeManager().reflectFees(
-                    address(this),
-                    from,
-                    to,
-                    amount
-                );
+            (tTotal, tFees) = dynamicFeeManager().reflectFees(
+                address(this),
+                from,
+                to,
+                amount
+            );
+
+            // Reset fee manager approval to zero for security reason
+            _approve(from, address(dynamicFeeManager()), 0);
+
+            return (tTotal, tFees);
         }
     }
 

@@ -74,7 +74,12 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
         address from,
         address to,
         uint256 amount
-    ) public virtual override onlyRole(ADMIN) returns (bool) {
+    ) public virtual override returns (bool) {
+        require(
+            _msgSender() == address(dynamicFeeManager()),
+            "WeSendit: Can only be called by Dynamic Fee Manager"
+        );
+
         return super.transferFrom(from, to, amount);
     }
 

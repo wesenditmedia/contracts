@@ -110,7 +110,6 @@ describe("Dynamic Fee Manager", function () {
 
     await mockWsi.unpause()
     await mockWsi.setDynamicFeeManager(contract.address)
-    await mockWsi.grantRole(await mockWsi.ADMIN(), contract.address)
 
     await contract.setFeesEnabled(true)
     await contract.setPancakeRouter(mockPancakeRouter.address)

@@ -70,8 +70,6 @@ describe("WeSendit", function () {
 
     ADMIN_ROLE = await contract.ADMIN()
     BYPASS_PAUSE_ROLE = await contract.BYPASS_PAUSE()
-
-    await contract.grantRole(ADMIN_ROLE, mockDynamicFeeManager.address)
   });
 
   describe("Deployment", function () {
@@ -323,6 +321,7 @@ describe("WeSendit", function () {
     describe('transferFromNoFees()', function () {
       it('should do transfer without fees', async function () {
         // Arrange
+        await contract.setDynamicFeeManager(owner.address)
         await contract.connect(alice).approve(owner.address, parseEther('100'))
         await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ percentage: 10000, destination: addrs[0].address })) // 10%
 
@@ -340,7 +339,7 @@ describe("WeSendit", function () {
         // Act & Assert
         await expect(
           contract.connect(alice).transferFromNoFees(alice.address, bob.address, parseEther('100'))
-        ).to.be.reverted
+        ).to.be.revertedWith('WeSendit: Can only be called by Dynamic Fee Manager')
       })
     })
   })

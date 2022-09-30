@@ -67,7 +67,7 @@ describe("WeSendit", function () {
     await mockDynamicFeeManager.setBusdAddress(mockBusd.address)
     await mockDynamicFeeManager.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, mockPancakePair.address)
     await mockDynamicFeeManager.grantRole(EXCLUDE_WILDCARD_FEE_ROLE, mockPancakePair.address)
-
+    await mockDynamicFeeManager.decreaseFeeLimits()
 
     ADMIN_ROLE = await contract.ADMIN()
     BYPASS_PAUSE_ROLE = await contract.BYPASS_PAUSE()

@@ -43,8 +43,14 @@ abstract contract BaseDynamicFeeManager is
     // Fee percentage limit
     uint256 public constant FEE_PERCENTAGE_LIMIT = 10000; // 10%
 
+    // Fee percentage limit on creation
+    uint256 public constant INITIAL_FEE_PERCENTAGE_LIMIT = 25000; // 25%
+
     // Transaction fee limit
     uint256 public constant TRANSACTION_FEE_LIMIT = 10; // 10%
+
+    // Transaction fee limit on creation
+    uint256 public constant INITIAL_TRANSACTION_FEE_LIMIT = 25; // 25%
 
     // Fee divider
     uint256 internal constant FEE_DIVIDER = 100000;
@@ -69,6 +75,12 @@ abstract contract BaseDynamicFeeManager is
     // BUSD address
     address private _busdAddress;
 
+    // Fee percentage limit
+    uint256 internal _feePercentageLimit;
+
+    // Transaction fee limit
+    uint256 internal _transactionFeeLimit;
+
     // WeSendit token
     IERC20 internal _token;
 
@@ -82,6 +94,10 @@ abstract contract BaseDynamicFeeManager is
         _setRoleAdmin(RECEIVER_FEE_WHITELIST, ADMIN);
         _setRoleAdmin(BYPASS_SWAP_AND_LIQUIFY, ADMIN);
         _setRoleAdmin(EXCLUDE_WILDCARD_FEE, ADMIN);
+
+        // Set initial values for limits
+        _feePercentageLimit = INITIAL_FEE_PERCENTAGE_LIMIT;
+        _transactionFeeLimit = INITIAL_TRANSACTION_FEE_LIMIT;
 
         // Create WeSendit token instance
         _token = IERC20(wesenditToken);
@@ -132,6 +148,32 @@ abstract contract BaseDynamicFeeManager is
     function setBusdAddress(address value) external override onlyRole(ADMIN) {
         _busdAddress = value;
         emit BusdAddressUpdated(value);
+    }
+
+    function feePercentageLimit() public view override returns (uint256 value) {
+        return _feePercentageLimit;
+    }
+
+    function transactionFeeLimit()
+        public
+        view
+        override
+        returns (uint256 value)
+    {
+        return _transactionFeeLimit;
+    }
+
+    function decreaseFeeLimits() external override onlyRole(ADMIN) {
+        require(
+            _feePercentageLimit != FEE_PERCENTAGE_LIMIT &&
+                _transactionFeeLimit != TRANSACTION_FEE_LIMIT,
+            "DynamicFeeManager: Fee limits are already decreased"
+        );
+
+        _feePercentageLimit = FEE_PERCENTAGE_LIMIT;
+        _transactionFeeLimit = TRANSACTION_FEE_LIMIT;
+
+        emit FeeLimitsDecreased();
     }
 
     function emergencyWithdraw(uint256 amount)

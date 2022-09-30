@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import "./IPancakeRouter.sol";
 
 /**
@@ -116,6 +117,11 @@ interface IDynamicFeeManager {
      * @param newAddress address - New BUSD address
      */
     event BusdAddressUpdated(address newAddress);
+
+    /**
+     * Emitted on fee limits (fee percentage and transsaction limit) decrease
+     */
+    event FeeLimitsDecreased();
 
     /**
      * Emitted on swap and liquify event
@@ -254,6 +260,26 @@ interface IDynamicFeeManager {
      * @param value address - BUSD address
      */
     function setBusdAddress(address value) external;
+
+    /**
+     * Returns the fee entry percentage limit
+     *
+     * @return value uint256 - Fee entry percentage limit
+     */
+    function feePercentageLimit() external view returns (uint256 value);
+
+    /**
+     * Returns the overall transaction fee limit
+     *
+     * @return value uint256 - Transaction fee limit in percent
+     */
+    function transactionFeeLimit() external view returns (uint256 value);
+
+    /**
+     * Decreases the fee limits from initial values (used for bot protection), to normal values
+     */
+    function decreaseFeeLimits() external;
+
 
     /**
      * Returns the WeSendit token instance

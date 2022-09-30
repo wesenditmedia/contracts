@@ -38,7 +38,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             "DynamicFeeManager: Invalid fee percentage"
         );
         require(
-            percentage <= FEE_PERCENTAGE_LIMIT,
+            percentage <= _feePercentageLimit,
             "DynamicFeeManager: Fee percentage exceeds limit"
         );
         require(
@@ -131,7 +131,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         }
 
         require(
-            tFees <= amount.mul(TRANSACTION_FEE_LIMIT).div(100),
+            tFees <= amount.mul(_transactionFeeLimit).div(100),
             "DynamicFeeManager: Transaction fees exceeding limit"
         );
 

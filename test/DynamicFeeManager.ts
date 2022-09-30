@@ -72,6 +72,8 @@ describe("Dynamic Fee Manager", function () {
   let BYPASS_SWAP_AND_LIQUIFY_ROLE: string
   let EXCLUDE_WILDCARD_FEE_ROLE: string
 
+  let INITIAL_FEE_PERCENTAGE_LIMIT: BigNumber
+  let INITIAL_TRANSACTION_FEE_LIMIT: BigNumber
   let FEE_PERCENTAGE_LIMIT: BigNumber
   let TRANSACTION_FEE_LIMIT: BigNumber
 
@@ -105,6 +107,8 @@ describe("Dynamic Fee Manager", function () {
     BYPASS_SWAP_AND_LIQUIFY_ROLE = await contract.BYPASS_SWAP_AND_LIQUIFY()
     EXCLUDE_WILDCARD_FEE_ROLE = await contract.EXCLUDE_WILDCARD_FEE()
 
+    INITIAL_FEE_PERCENTAGE_LIMIT = await contract.INITIAL_FEE_PERCENTAGE_LIMIT()
+    INITIAL_TRANSACTION_FEE_LIMIT = await contract.INITIAL_TRANSACTION_FEE_LIMIT()
     FEE_PERCENTAGE_LIMIT = await contract.FEE_PERCENTAGE_LIMIT()
     TRANSACTION_FEE_LIMIT = await contract.TRANSACTION_FEE_LIMIT()
 
@@ -127,6 +131,8 @@ describe("Dynamic Fee Manager", function () {
       expect(await contract.feesEnabled()).to.equal(true)
       expect(await contract.pancakeRouter()).to.equal(mockPancakeRouter.address)
       expect(await contract.busdAddress()).to.equal(mockBusd.address)
+      expect(await contract.feePercentageLimit()).to.equal(INITIAL_FEE_PERCENTAGE_LIMIT)
+      expect(await contract.transactionFeeLimit()).to.equal(INITIAL_TRANSACTION_FEE_LIMIT)
     })
 
     it("should assign correct roles to creator", async function () {
@@ -138,9 +144,23 @@ describe("Dynamic Fee Manager", function () {
       expect(await contract.getRoleAdmin(BYPASS_SWAP_AND_LIQUIFY_ROLE)).to.equal(ADMIN_ROLE)
       expect(await contract.getRoleAdmin(EXCLUDE_WILDCARD_FEE_ROLE)).to.equal(ADMIN_ROLE)
     })
+
+    it('should decrease fee limits', async function () {
+      expect(await contract.feePercentageLimit()).to.equal(INITIAL_FEE_PERCENTAGE_LIMIT)
+      expect(await contract.transactionFeeLimit()).to.equal(INITIAL_TRANSACTION_FEE_LIMIT)
+
+      await contract.decreaseFeeLimits()
+
+      expect(await contract.feePercentageLimit()).to.equal(FEE_PERCENTAGE_LIMIT)
+      expect(await contract.transactionFeeLimit()).to.equal(TRANSACTION_FEE_LIMIT)
+    })
   });
 
   describe('Dynamic Fee Management', function () {
+    beforeEach(async function () {
+      await contract.decreaseFeeLimits()
+    })
+
     describe('Add Fee', function () {
       it('should add single fee', async function () {
         // Arrange & Assert
@@ -372,6 +392,7 @@ describe("Dynamic Fee Manager", function () {
 
   describe('Fee Calculation', function () {
     beforeEach(async function () {
+      await contract.decreaseFeeLimits()
       await mockWsi.transfer(alice.address, parseEther('100'))
       await mockWsi.connect(alice).approve(contract.address, parseEther('100'))
     })
@@ -643,6 +664,7 @@ describe("Dynamic Fee Manager", function () {
 
   describe('Fee Refelection', function () {
     beforeEach(async function () {
+      await contract.decreaseFeeLimits()
       await mockWsi.transfer(alice.address, parseEther('100'))
       await mockWsi.connect(alice).approve(contract.address, parseEther('100'))
     })
@@ -1510,6 +1532,7 @@ describe("Dynamic Fee Manager", function () {
 
   describe('Test Scenarios', function () {
     beforeEach(async function () {
+      await contract.decreaseFeeLimits()
       await contract.grantRole(EXCLUDE_WILDCARD_FEE_ROLE, mockPancakePair.address)
       await mockWsi.transfer(alice.address, parseEther('100'))
     })

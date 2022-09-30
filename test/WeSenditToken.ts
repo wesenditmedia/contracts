@@ -45,8 +45,11 @@ describe("WeSendit", function () {
   beforeEach(async function () {
     [owner, alice, bob, supply, ...addrs] = await ethers.getSigners()
 
+    const WeSenditToken = await ethers.getContractFactory("WeSenditToken");
+    contract = await WeSenditToken.deploy(owner.address)
+
     const DynamicFeeManager = await smock.mock<DynamicFeeManager__factory>("DynamicFeeManager")
-    mockDynamicFeeManager = await DynamicFeeManager.deploy()
+    mockDynamicFeeManager = await DynamicFeeManager.deploy(contract.address)
 
     const MockERC20 = await ethers.getContractFactory('MockERC20')
     mockBnb = await MockERC20.deploy()
@@ -65,8 +68,6 @@ describe("WeSendit", function () {
     await mockDynamicFeeManager.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, mockPancakePair.address)
     await mockDynamicFeeManager.grantRole(EXCLUDE_WILDCARD_FEE_ROLE, mockPancakePair.address)
 
-    const WeSenditToken = await ethers.getContractFactory("WeSenditToken");
-    contract = await WeSenditToken.deploy(owner.address)
 
     ADMIN_ROLE = await contract.ADMIN()
     BYPASS_PAUSE_ROLE = await contract.BYPASS_PAUSE()
@@ -117,7 +118,6 @@ describe("WeSendit", function () {
         expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
-          contract.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -139,7 +139,6 @@ describe("WeSendit", function () {
         expect(await contract.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
-          contract.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -201,7 +200,6 @@ describe("WeSendit", function () {
 
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledThrice
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
-          contract.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -248,7 +246,6 @@ describe("WeSendit", function () {
 
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledTwice
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
-          contract.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -288,7 +285,6 @@ describe("WeSendit", function () {
         expect(await contract.allowance(alice.address, mockDynamicFeeManager.address)).to.equal(0)
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
-          contract.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -310,7 +306,6 @@ describe("WeSendit", function () {
         expect(await contract.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledOnce
         expect(mockDynamicFeeManager.reflectFees).to.have.been.calledWith(
-          contract.address,
           alice.address,
           bob.address,
           parseEther('100')

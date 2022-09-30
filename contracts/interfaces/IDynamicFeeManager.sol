@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./IPancakeRouter.sol";
 
 /**
@@ -190,7 +191,6 @@ interface IDynamicFeeManager {
     /**
      * Reflects the fee for a transaction
      *
-     * @param token address - Address of the ERC20 token used
      * @param from address - Sender address
      * @param to address - Receiver address
      * @param amount uint256 - Transaction amount
@@ -199,7 +199,6 @@ interface IDynamicFeeManager {
      * @return tFees uint256 - Total fee amount
      */
     function reflectFees(
-        address token,
         address from,
         address to,
         uint256 amount
@@ -255,4 +254,11 @@ interface IDynamicFeeManager {
      * @param value address - BUSD address
      */
     function setBusdAddress(address value) external;
+
+    /**
+     * Returns the WeSendit token instance
+     *
+     * @return value IERC20 - WeSendit Token instance
+     */
+    function token() external view returns (IERC20 value);
 }

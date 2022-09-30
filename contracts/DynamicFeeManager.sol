@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "./BaseDynamicFeeManager.sol";
 import "./interfaces/IFeeReceiver.sol";
+import "./interfaces/IWeSenditToken.sol";
 
 /**
  * @title Dynamic Fee Manager for ERC20 token
@@ -17,7 +18,7 @@ import "./interfaces/IFeeReceiver.sol";
 contract DynamicFeeManager is BaseDynamicFeeManager {
     using SafeMath for uint256;
 
-    constructor() BaseDynamicFeeManager() {}
+    constructor(address wesenditToken) BaseDynamicFeeManager(wesenditToken) {}
 
     receive() external payable {}
 
@@ -99,7 +100,6 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
     }
 
     function reflectFees(
-        address token,
         address from,
         address to,
         uint256 amount
@@ -126,7 +126,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             if (_isFeeEntryValid(fee) && _isFeeEntryMatching(fee, from, to)) {
                 uint256 tFee = _calculateFee(amount, fee);
                 tFees = tFees.add(tFee);
-                _reflectFee(token, from, to, tFee, fee, bypassSwapAndLiquify);
+                _reflectFee(from, to, tFee, fee, bypassSwapAndLiquify);
             }
         }
 
@@ -144,14 +144,12 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
     /**
      * Reflects a single fee
      *
-     * @param token address - Address of the ERC20 token used
      * @param from address - Sender address
      * @param to address - Receiver address
      * @param tFee uint256 - Fee amount
      * @param fee FeeEntry - Fee Entry
      */
     function _reflectFee(
-        address token,
         address from,
         address to,
         uint256 tFee,
@@ -161,7 +159,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         // add to liquify / swap amount or transfer to fee destination
         if (fee.doLiquify || fee.doSwapForBusd) {
             require(
-                IWeSenditToken(token).transferFromNoFees(
+                IWeSenditToken(address(token())).transferFromNoFees(
                     from,
                     address(this),
                     tFee
@@ -171,7 +169,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             _amounts[fee.id] = _amounts[fee.id].add(tFee);
         } else {
             require(
-                IWeSenditToken(token).transferFromNoFees(
+                IWeSenditToken(address(token())).transferFromNoFees(
                     from,
                     fee.destination,
                     tFee
@@ -207,7 +205,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         if (fee.doCallback && !fee.doSwapForBusd && !fee.doLiquify) {
             IFeeReceiver(fee.destination).onERC20Received(
                 address(this),
-                token,
+                address(token()),
                 from,
                 to,
                 tFee
@@ -216,7 +214,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
 
         emit FeeReflected(
             fee.id,
-            token,
+            address(token()),
             from,
             to,
             tFee,

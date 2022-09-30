@@ -80,15 +80,15 @@ describe("Dynamic Fee Manager", function () {
   beforeEach(async function () {
     [owner, alice, bob, charlie, ...addrs] = await ethers.getSigners();
 
-    const DynamicFeeManager = await ethers.getContractFactory("DynamicFeeManager")
-    contract = await DynamicFeeManager.deploy()
+    const WeSenditToken = await smock.mock<WeSenditToken__factory>('WeSenditToken')
+    mockWsi = await WeSenditToken.deploy(owner.address)
 
     const MockERC20 = await ethers.getContractFactory('MockERC20')
     mockBnb = await MockERC20.deploy()
     mockBusd = await MockERC20.deploy()
 
-    const WeSenditToken = await smock.mock<WeSenditToken__factory>('WeSenditToken')
-    mockWsi = await WeSenditToken.deploy(owner.address)
+    const DynamicFeeManager = await ethers.getContractFactory("DynamicFeeManager")
+    contract = await DynamicFeeManager.deploy(mockWsi.address)
 
     const MockPancakePair = await smock.mock<MockPancakePair__factory>('MockPancakePair')
     mockPancakePair = await MockPancakePair.deploy()
@@ -382,7 +382,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -399,7 +398,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -416,7 +414,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -433,7 +430,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -450,7 +446,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -469,7 +464,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -488,7 +482,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -510,7 +503,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -529,7 +521,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('0.0002')
@@ -547,7 +538,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -567,7 +557,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act & Assert
       await expect(contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -585,7 +574,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act & Assert
       await expect(contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -601,7 +589,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -623,7 +610,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -645,7 +631,6 @@ describe("Dynamic Fee Manager", function () {
 
       // Act
       await contract.reflectFees(
-        mockWsi.address,
         alice.address,
         bob.address,
         parseEther('100')
@@ -669,7 +654,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -689,7 +673,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -711,7 +694,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -731,7 +713,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -750,7 +731,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -769,7 +749,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -788,7 +767,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -807,7 +785,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -827,7 +804,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -847,7 +823,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act & Assert
         await expect(contract.reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -865,7 +840,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act & Assert
         await expect(contract.reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -880,7 +854,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -905,7 +878,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -949,7 +921,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -983,7 +954,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1004,7 +974,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1025,7 +994,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1048,14 +1016,12 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('50')
         )
 
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('25')
@@ -1075,7 +1041,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1108,7 +1073,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1144,7 +1108,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1189,7 +1152,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1225,7 +1187,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1249,7 +1210,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1270,7 +1230,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1291,7 +1250,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1314,7 +1272,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1343,7 +1300,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1375,7 +1331,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1415,7 +1370,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')
@@ -1447,7 +1401,6 @@ describe("Dynamic Fee Manager", function () {
 
         // Act
         await contract.connect(alice).reflectFees(
-          mockWsi.address,
           alice.address,
           bob.address,
           parseEther('100')

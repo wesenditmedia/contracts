@@ -42,7 +42,7 @@ abstract contract BaseWeSenditToken is
         return _paused;
     }
 
-    function unpause() public override onlyRole(ADMIN) {
+    function unpause() external override onlyRole(ADMIN) {
         _paused = false;
         emit Unpaused();
     }
@@ -57,7 +57,7 @@ abstract contract BaseWeSenditToken is
     }
 
     function setDynamicFeeManager(address value)
-        public
+        external
         override
         onlyRole(ADMIN)
     {
@@ -65,12 +65,16 @@ abstract contract BaseWeSenditToken is
         emit DynamicFeeManagerUpdated(value);
     }
 
-    function emergencyWithdraw(uint256 amount) public override onlyRole(ADMIN) {
+    function emergencyWithdraw(uint256 amount)
+        external
+        override
+        onlyRole(ADMIN)
+    {
         super._emergencyWithdraw(amount);
     }
 
     function emergencyWithdrawToken(address token, uint256 amount)
-        public
+        external
         override
         onlyRole(ADMIN)
     {

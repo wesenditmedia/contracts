@@ -31,7 +31,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         bool doSwapForBusd,
         uint256 swapOrLiquifyAmount,
         uint256 expiresAt
-    ) public override onlyRole(ADMIN) returns (uint256 index) {
+    ) external override onlyRole(ADMIN) returns (uint256 index) {
         require(
             percentage <= FEE_DIVIDER,
             "DynamicFeeManager: Invalid fee percentage"
@@ -84,7 +84,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         return _fees.length - 1;
     }
 
-    function removeFee(uint256 index) public override onlyRole(ADMIN) {
+    function removeFee(uint256 index) external override onlyRole(ADMIN) {
         require(index < _fees.length, "DynamicFeeManager: array out of bounds");
 
         // Reset current amount for liquify or swap
@@ -103,7 +103,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         address from,
         address to,
         uint256 amount
-    ) public override returns (uint256 tTotal, uint256 tFees) {
+    ) external override returns (uint256 tTotal, uint256 tFees) {
         bool bypassFees = !feesEnabled() ||
             from == owner() ||
             hasRole(ADMIN, from) ||
@@ -226,145 +226,6 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             fee.doSwapForBusd,
             fee.swapOrLiquifyAmount,
             fee.expiresAt
-        );
-    }
-
-    /**
-     * Swaps half of the token amount and add liquidity on Pancakeswap
-     *
-     * @param token address - Token to use
-     * @param amount uint256 - Amount to use
-     * @param destination address - Destination address for the LP tokens
-     */
-    function _swapAndLiquify(
-        address token,
-        uint256 amount,
-        address destination
-    ) private nonReentrant {
-        // split the contract balance into halves
-        uint256 half = amount.div(2);
-        uint256 otherHalf = amount.sub(half);
-
-        // capture the contract's current BNB balance.
-        // this is so that we can capture exactly the amount of BNB that the
-        // swap creates, and not make the liquidity event include any BNB that
-        // has been manually sent to the contract
-        uint256 initialBalance = address(this).balance;
-
-        // swap tokens for BNB
-        _swapTokensForBnb(token, half, destination); // <- this breaks the BNB -> WSI swap when swap+liquify is triggered
-
-        // how much BNB did we just swap into?
-        uint256 newBalance = address(this).balance.sub(initialBalance);
-
-        // add liquidity to uniswap
-        _addLiquidity(token, otherHalf, newBalance, destination);
-
-        emit SwapAndLiquify(half, newBalance, otherHalf);
-    }
-
-    /**
-     * Swaps tokens against BNB on Pancakeswap
-     *
-     * @param token address - Token to swap
-     * @param amount uint256 - Amount to use
-     * @param destination address - Destination address for BNB
-     */
-    function _swapTokensForBnb(
-        address token,
-        uint256 amount,
-        address destination
-    ) private {
-        // generate the uniswap pair path of token -> wbnb
-        address[] memory path = new address[](2);
-        path[0] = token;
-        path[1] = pancakeRouter().WETH();
-
-        require(
-            IERC20(token).approve(address(pancakeRouter()), amount),
-            "DynamicFeeManager: Failed to approve token for swap BNB"
-        );
-
-        // make the swap
-        pancakeRouter().swapExactTokensForETHSupportingFeeOnTransferTokens(
-            amount,
-            0, // accept any amount of BNB
-            path,
-            destination,
-            block.timestamp
-        );
-    }
-
-    /**
-     * Swaps tokens against BUSD on Pancakeswap
-     *
-     * @param token address - Token to swap
-     * @param amount uint256 - Amount to use
-     * @param destination address - Destination address for BUSD
-     */
-    function _swapTokensForBusd(
-        address token,
-        uint256 amount,
-        address destination
-    ) private nonReentrant {
-        // generate the uniswap pair path of token -> wbnb
-        address[] memory path = new address[](2);
-        path[0] = token;
-        path[1] = busdAddress();
-
-        require(
-            IERC20(token).approve(address(pancakeRouter()), amount),
-            "DynamicFeeManager: Failed to approve token for swap to BUSD"
-        );
-
-        // capture the contract's current BUSD balance.
-        uint256 initialBalance = IERC20(token).balanceOf(destination);
-
-        // make the swap
-        pancakeRouter().swapExactTokensForTokensSupportingFeeOnTransferTokens(
-            amount,
-            0, // accept any amount of BUSD
-            path,
-            destination,
-            block.timestamp
-        );
-
-        // how much BUSD did we just swap into?
-        uint256 newBalance = IERC20(token).balanceOf(destination).sub(
-            initialBalance
-        );
-
-        emit SwapTokenForBusd(token, amount, newBalance, destination);
-    }
-
-    /**
-     * Creates liquidity on Pancakeswap
-     *
-     * @param token address - Token to use
-     * @param tokenAmount uint256 - Amount of token to use
-     * @param bnbAmount uint256 - Amount of BNB to use
-     * @param destination address - Destination address for the LP tokens
-     */
-    function _addLiquidity(
-        address token,
-        uint256 tokenAmount,
-        uint256 bnbAmount,
-        address destination
-    ) private {
-        // approve token transfer to cover all possible scenarios
-        require(
-            IERC20(token).approve(address(pancakeRouter()), tokenAmount),
-            "DynamicFeeManager: Failed to approve token for adding liquidity"
-        );
-
-        // add the liquidity
-        pancakeRouter().addLiquidityETH{value: bnbAmount}(
-            token,
-            tokenAmount,
-            0, // slippage is unavoidable
-            0, // slippage is unavoidable
-            destination,
-            block.timestamp
         );
     }
 

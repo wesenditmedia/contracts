@@ -158,17 +158,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         FeeEntry memory fee,
         bool bypassSwapAndLiquify
     ) private {
-        // Transfer fee or add to liquify / swap amount
-        if (!fee.doLiquify && !fee.doSwapForBusd) {
-            require(
-                IWeSenditToken(token).transferFromNoFees(
-                    from,
-                    fee.destination,
-                    tFee
-                ),
-                "DynamicFeeManager: Fee transfer to destination failed"
-            );
-        } else {
+        // add to liquify / swap amount or transfer to fee destination
+        if (fee.doLiquify || fee.doSwapForBusd) {
             require(
                 IWeSenditToken(token).transferFromNoFees(
                     from,
@@ -178,6 +169,15 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
                 "DynamicFeeManager: Fee transfer to manager failed"
             );
             _amounts[fee.id] = _amounts[fee.id].add(tFee);
+        } else {
+            require(
+                IWeSenditToken(token).transferFromNoFees(
+                    from,
+                    fee.destination,
+                    tFee
+                ),
+                "DynamicFeeManager: Fee transfer to destination failed"
+            );
         }
 
         // Check if swap / liquify amount was reached

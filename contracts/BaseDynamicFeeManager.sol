@@ -81,6 +81,9 @@ abstract contract BaseDynamicFeeManager is
     // Transaction fee limit
     uint256 internal _transactionFeeLimit;
 
+    // Swap percentage
+    uint256 internal _swapPercentage = 100;
+
     // WeSendit token
     IERC20 internal _token;
 
@@ -191,11 +194,22 @@ abstract contract BaseDynamicFeeManager is
     {
         super._emergencyWithdrawToken(tokenToWithdraw, amount);
     }
+
+    function swapPercentage() public view override returns (uint256 value) {
+        return _swapPercentage;
+    }
+
+    function setSwapPercentage(uint256 value)
         external
         override
         onlyRole(ADMIN)
     {
-        super._emergencyWithdrawToken(token, amount);
+        require(
+            _swapPercentage >= 0 && _swapPercentage <= 100,
+            "DynamicFeeManager: Invalid value for swap percentage"
+        );
+
+        _swapPercentage = value;
     }
 
     function token() public view override returns (IERC20 value) {

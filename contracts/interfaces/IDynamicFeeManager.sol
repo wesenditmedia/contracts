@@ -124,6 +124,13 @@ interface IDynamicFeeManager {
     event FeeLimitsDecreased();
 
     /**
+     * Emitted on swap percentage update
+     *
+     * @param newPercentage uint256 - New swap percentage
+     */
+    event SwapPercentageUpdated(uint256 newPercentage);
+
+    /**
      * Emitted on swap and liquify event
      *
      * @param firstHalf uint256 - Half of tokens
@@ -280,6 +287,19 @@ interface IDynamicFeeManager {
      */
     function decreaseFeeLimits() external;
 
+    /**
+     * Returns the current swap percentage
+     *
+     * @return value uint256 - Swap percentage
+     */
+    function swapPercentage() external view returns (uint256 value);
+
+    /**
+     * Sets the swap percentage
+     *
+     * @param value uint256 - New swap percentage (values from 0 to 100)
+     */
+    function setSwapPercentage(uint256 value) external;
 
     /**
      * Returns the WeSendit token instance

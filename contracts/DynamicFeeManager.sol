@@ -183,19 +183,29 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             !bypassSwapAndLiquify && _amounts[fee.id] >= fee.swapOrLiquifyAmount
         ) {
             if (fee.doSwapForBusd) {
-                // swap token for BUSD
-                _swapTokensForBusd(
-                    token,
-                    fee.swapOrLiquifyAmount,
-                    fee.destination
+                // Get pancakeswap pair token balance to identify, how many
+                // token are currently on the market
+                /**uint256 pancakePairTokenBalance = IERC20(token).balanceOf(
+                    address(0)
                 );
+
+                // Calculate percentual amount of token from the market
+                // volume
+                uint256 maxSwapAmount = pancakePairTokenBalance
+                    .mul(swapPercentage())
+                    .div(100);
+
+                // Prevent swapping more token than threshold is set to
+                if (maxSwapAmount > fee.swapOrLiquifyAmount) {
+                    maxSwapAmount = fee.swapOrLiquifyAmount;
+                }
+
+                // Swap token for BUSD
+                _swapTokensForBusd(token, maxSwapAmount, fee.destination);*/
+                _swapTokensForBusd(fee.swapOrLiquifyAmount, fee.destination);
             } else if (fee.doLiquify) {
-                // swap and liquify token
-                _swapAndLiquify(
-                    token,
-                    fee.swapOrLiquifyAmount,
-                    fee.destination
-                );
+                // Swap and liquify token
+                _swapAndLiquify(fee.swapOrLiquifyAmount, fee.destination);
             }
 
             _amounts[fee.id] = _amounts[fee.id].sub(fee.swapOrLiquifyAmount);

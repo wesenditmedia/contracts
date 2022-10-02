@@ -1,35 +1,17 @@
 import { ethers } from "hardhat";
 
 async function main() {
-  const Token = await ethers.getContractFactory("WeSenditToken");
-  const token = await Token.deploy(
+  const WeSenditToken = await ethers.getContractFactory("WeSenditToken");
+  const weSenditToken = await WeSenditToken.deploy(
     '0x000000000000000000000000000000000000dEaD'
   );
 
-  await token.deployed();
+  console.log("WeSenditToken deployed to:", weSenditToken.address);
 
-  console.log("WeSendit token deployed to:", token.address);
+  const DynamicFeeManager = await ethers.getContractFactory('DynamicFeeManager')
+  const dynamicFeeManager = await DynamicFeeManager.deploy(weSenditToken.address)
 
-/*   await token.distributeSaleToken(
-    '0x0',
-    '0x0'
-  )
-
-  await token.distributeToken(
-    '0x0',
-    '0x0',
-    '0x0',
-    '0x0',
-    '0x0',
-    '0x0',
-    '0x0',
-    '0x0',
-    '0x0',
-    '0x0',
-    '0x0'
-  ) */
-
-  console.log('Successfully distributed token')
+  console.log("DynamicFeeManager deployed to:", dynamicFeeManager.address);
 }
 
 main().catch((error) => {

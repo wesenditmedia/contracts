@@ -38,7 +38,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             "DynamicFeeManager: Invalid fee percentage"
         );
         require(
-            percentage <= _feePercentageLimit,
+            percentage <= feePercentageLimit(),
             "DynamicFeeManager: Fee percentage exceeds limit"
         );
         require(
@@ -124,14 +124,17 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             FeeEntry memory fee = _fees[i];
 
             if (_isFeeEntryValid(fee) && _isFeeEntryMatching(fee, from, to)) {
-                uint256 tFee = _calculateFee(amount, fee);
-                tFees = tFees.add(tFee);
-                _reflectFee(from, to, tFee, fee, bypassSwapAndLiquify);
+                uint256 tFee = _calculateFee(amount, fee.percentage);
+
+                if (tFee > 0) {
+                    tFees = tFees.add(tFee);
+                    _reflectFee(from, to, tFee, fee, bypassSwapAndLiquify);
+                }
             }
         }
 
         require(
-            tFees <= amount.mul(_transactionFeeLimit).div(100),
+            tFees <= amount.mul(transactionFeeLimit()).div(FEE_DIVIDER),
             "DynamicFeeManager: Transaction fees exceeding limit"
         );
 
@@ -303,16 +306,16 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
      * Calculates a single fee
      *
      * @param amount uint256 - Transaction amount
-     * @param fee FeeEntry - Fee Entry
+     * @param percentage uint256 - Fee percentage
      *
      * @return tFee - Total Fee Amount
      */
-    function _calculateFee(uint256 amount, FeeEntry memory fee)
+    function _calculateFee(uint256 amount, uint256 percentage)
         private
         pure
         returns (uint256 tFee)
     {
-        return amount.mul(fee.percentage).div(FEE_DIVIDER); // ex. 125/100000 = 0.000125 = 0.0125%
+        return amount.mul(percentage).div(FEE_DIVIDER); // ex. 125/100000 = 0.000125 = 0.0125%
     }
 
     /**

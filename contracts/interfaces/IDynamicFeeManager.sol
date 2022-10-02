@@ -269,6 +269,13 @@ interface IDynamicFeeManager {
     function setBusdAddress(address value) external;
 
     /**
+     * Returns the fee decrease status
+     *
+     * @return value bool - True if fees are already decreased, false if not
+     */
+    function feeDecreased() external view returns (bool value);
+
+    /**
      * Returns the fee entry percentage limit
      *
      * @return value uint256 - Fee entry percentage limit

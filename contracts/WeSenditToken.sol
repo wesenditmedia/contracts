@@ -32,7 +32,7 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
     ) internal virtual override {
         super._beforeTokenTransfer(from, to, amount);
 
-        _preValidateTransfer(from, to, amount);
+        _preValidateTransfer(from);
     }
 
     /**
@@ -115,14 +115,8 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
      * Checks if the minimum transaction amount is exceeded and if pause is enabled
      *
      * @param from address - Sender address
-     * @param to address - Receiver address
-     * @param amount uint256 - Transaction amount
      */
-    function _preValidateTransfer(
-        address from,
-        address to,
-        uint256 amount
-    ) private view {
+    function _preValidateTransfer(address from) private view {
         /**
          * Only allow transfers if:
          * - token is not paused

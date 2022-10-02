@@ -46,10 +46,6 @@ const getBlockTimestamp = async () => {
   return block.timestamp
 }
 
-const getFeePercentageFromTransactionFee = (transactionFee: BigNumber, divider: BigNumber) => {
-  return transactionFee.mul(divider).div(100)
-}
-
 describe("Dynamic Fee Manager", function () {
   let contract: DynamicFeeManager
 
@@ -412,6 +408,46 @@ describe("Dynamic Fee Manager", function () {
       expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
     })
 
+    for (const amount of [1, 10]) {
+      it(`should calculate correct fee for small amount (${amount})`, async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
+
+        // Act
+        await contract.reflectFees(
+          alice.address,
+          bob.address,
+          amount
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(0)
+      })
+    }
+
+    for (const percentage of [1, 10, 100, 1000, 10000]) {
+      for (const amount of [1, 10, 100, 1000, 10000, 1000000]) {
+        it(`should calculate correct fee for percentage: ${percentage / FEE_DIVIDER.toNumber()}% and amount: ${amount}`, async function () {
+          // Arrange
+          await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
+
+          // Act
+          await contract.reflectFees(
+            alice.address,
+            bob.address,
+            amount
+          )
+
+          // Assert
+          if (((percentage / FEE_DIVIDER.toNumber()) * amount) >= 1) {
+            expect(await mockWsi.balanceOf(addrs[0].address)).to.not.equal(0)
+          } else {
+            expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(0)
+          }
+        })
+      }
+    }
+
     it('should calculate correct fee for multiple entries', async function () {
       // Arrange
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
@@ -553,7 +589,7 @@ describe("Dynamic Fee Manager", function () {
 
     it('should calculate fee if overall fee is equal transaction fee limit', async function () {
       // Arrange
-      const percentage = getFeePercentageFromTransactionFee(TRANSACTION_FEE_LIMIT, FEE_DIVIDER).div(2)
+      const percentage = TRANSACTION_FEE_LIMIT.div(2)
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
 
@@ -566,13 +602,13 @@ describe("Dynamic Fee Manager", function () {
 
       // Assert
       expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(
-        parseEther(TRANSACTION_FEE_LIMIT.toString())
+        parseEther('100').mul(TRANSACTION_FEE_LIMIT).div(FEE_DIVIDER)
       )
     })
 
     it('should fail to calculate fee if overall fee is higher than transaction fee limit', async function () {
       // Arrange
-      const percentage = getFeePercentageFromTransactionFee(TRANSACTION_FEE_LIMIT, FEE_DIVIDER).div(2)
+      const percentage = TRANSACTION_FEE_LIMIT.div(2)
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: percentage.add(1) }))
 
@@ -586,7 +622,7 @@ describe("Dynamic Fee Manager", function () {
 
     it('should fail to calculate fee if overall fee is over 100%', async function () {
       // Arrange
-      const percentage = getFeePercentageFromTransactionFee(TRANSACTION_FEE_LIMIT, FEE_DIVIDER)
+      const percentage = TRANSACTION_FEE_LIMIT
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
@@ -746,6 +782,25 @@ describe("Dynamic Fee Manager", function () {
         expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('1.1'))
       })
 
+      for (const amount of [1, 10]) {
+        it(`should not reflect fee if fee amount is zero (${amount})`, async function () {
+          // Arrange
+          await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
+
+          // Act
+          await contract.connect(alice).reflectFees(
+            alice.address,
+            bob.address,
+            amount
+          )
+
+          // Assert
+          expect(mockWsi.transferFromNoFees).to.have.not.been.called
+          expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('100'))
+          expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
+        })
+      }
+
       it('should not reflect fee if sender is owner', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
@@ -820,7 +875,7 @@ describe("Dynamic Fee Manager", function () {
 
       it('should reflect fee if overall fee is equal transaction fee limit', async function () {
         // Arrange
-        const percentage = getFeePercentageFromTransactionFee(TRANSACTION_FEE_LIMIT, FEE_DIVIDER).div(2)
+        const percentage = TRANSACTION_FEE_LIMIT.div(2)
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
 
@@ -839,7 +894,7 @@ describe("Dynamic Fee Manager", function () {
 
       it('should fail to reflect fee if overall fee higher than transaction fee limit', async function () {
         // Arrange
-        const percentage = getFeePercentageFromTransactionFee(TRANSACTION_FEE_LIMIT, FEE_DIVIDER)
+        const percentage = TRANSACTION_FEE_LIMIT
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
 
@@ -853,7 +908,7 @@ describe("Dynamic Fee Manager", function () {
 
       it('should fail to reflect fee if overall fee is over 100%', async function () {
         // Arrange
-        const percentage = getFeePercentageFromTransactionFee(TRANSACTION_FEE_LIMIT, FEE_DIVIDER)
+        const percentage = TRANSACTION_FEE_LIMIT
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))

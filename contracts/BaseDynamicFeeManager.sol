@@ -47,10 +47,10 @@ abstract contract BaseDynamicFeeManager is
     uint256 public constant INITIAL_FEE_PERCENTAGE_LIMIT = 25000; // 25%
 
     // Transaction fee limit
-    uint256 public constant TRANSACTION_FEE_LIMIT = 10; // 10%
+    uint256 public constant TRANSACTION_FEE_LIMIT = 10000; // 10%
 
     // Transaction fee limit on creation
-    uint256 public constant INITIAL_TRANSACTION_FEE_LIMIT = 25; // 25%
+    uint256 public constant INITIAL_TRANSACTION_FEE_LIMIT = 25000; // 25%
 
     // Fee divider
     uint256 internal constant FEE_DIVIDER = 100000;
@@ -75,17 +75,14 @@ abstract contract BaseDynamicFeeManager is
     // BUSD address
     address private _busdAddress;
 
-    // Fee percentage limit
-    uint256 internal _feePercentageLimit;
-
-    // Transaction fee limit
-    uint256 internal _transactionFeeLimit;
+    // Fee Decrease status
+    bool private _feeDecreased = false;
 
     // Swap percentage
-    uint256 internal _swapPercentage = 100;
+    uint256 private _swapPercentage = 100;
 
     // WeSendit token
-    IERC20 internal _token;
+    IERC20 private _token;
 
     constructor(address wesenditToken) {
         // Add creator to admin role
@@ -97,10 +94,6 @@ abstract contract BaseDynamicFeeManager is
         _setRoleAdmin(RECEIVER_FEE_WHITELIST, ADMIN);
         _setRoleAdmin(BYPASS_SWAP_AND_LIQUIFY, ADMIN);
         _setRoleAdmin(EXCLUDE_WILDCARD_FEE, ADMIN);
-
-        // Set initial values for limits
-        _feePercentageLimit = INITIAL_FEE_PERCENTAGE_LIMIT;
-        _transactionFeeLimit = INITIAL_TRANSACTION_FEE_LIMIT;
 
         // Create WeSendit token instance
         _token = IERC20(wesenditToken);
@@ -153,8 +146,13 @@ abstract contract BaseDynamicFeeManager is
         emit BusdAddressUpdated(value);
     }
 
+    function feeDecreased() public view override returns (bool value) {
+        return _feeDecreased;
+    }
+
     function feePercentageLimit() public view override returns (uint256 value) {
-        return _feePercentageLimit;
+        return
+            _feeDecreased ? FEE_PERCENTAGE_LIMIT : INITIAL_FEE_PERCENTAGE_LIMIT;
     }
 
     function transactionFeeLimit()
@@ -163,18 +161,19 @@ abstract contract BaseDynamicFeeManager is
         override
         returns (uint256 value)
     {
-        return _transactionFeeLimit;
+        return
+            _feeDecreased
+                ? TRANSACTION_FEE_LIMIT
+                : INITIAL_TRANSACTION_FEE_LIMIT;
     }
 
     function decreaseFeeLimits() external override onlyRole(ADMIN) {
         require(
-            _feePercentageLimit != FEE_PERCENTAGE_LIMIT &&
-                _transactionFeeLimit != TRANSACTION_FEE_LIMIT,
+            !_feeDecreased,
             "DynamicFeeManager: Fee limits are already decreased"
         );
 
-        _feePercentageLimit = FEE_PERCENTAGE_LIMIT;
-        _transactionFeeLimit = TRANSACTION_FEE_LIMIT;
+        _feeDecreased = true;
 
         emit FeeLimitsDecreased();
     }

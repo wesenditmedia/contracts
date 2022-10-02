@@ -186,29 +186,25 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             !bypassSwapAndLiquify && _amounts[fee.id] >= fee.swapOrLiquifyAmount
         ) {
             if (fee.doSwapForBusd) {
-                // Get pancakeswap pair token balance to identify, how many
-                // token are currently on the market
-                /**uint256 pancakePairTokenBalance = IERC20(token).balanceOf(
-                    address(0)
-                );
-
-                // Calculate percentual amount of token from the market
-                // volume
-                uint256 maxSwapAmount = pancakePairTokenBalance
-                    .mul(swapPercentage())
-                    .div(100);
-
-                // Prevent swapping more token than threshold is set to
-                if (maxSwapAmount > fee.swapOrLiquifyAmount) {
-                    maxSwapAmount = fee.swapOrLiquifyAmount;
-                }
-
                 // Swap token for BUSD
-                _swapTokensForBusd(token, maxSwapAmount, fee.destination);*/
-                _swapTokensForBusd(fee.swapOrLiquifyAmount, fee.destination);
+                _swapTokensForBusd(
+                    _getSwapOrLiquifyAmount(
+                        fee.swapOrLiquifyAmount,
+                        percentageVolumeSwap(),
+                        pancakePairBusdAddress()
+                    ),
+                    fee.destination
+                );
             } else if (fee.doLiquify) {
-                // Swap and liquify token
-                _swapAndLiquify(fee.swapOrLiquifyAmount, fee.destination);
+                // Swap (BNB) and liquify token
+                _swapAndLiquify(
+                    _getSwapOrLiquifyAmount(
+                        fee.swapOrLiquifyAmount,
+                        percentageVolumeLiquify(),
+                        pancakePairBnbAddress()
+                    ),
+                    fee.destination
+                );
             }
 
             _amounts[fee.id] = _amounts[fee.id].sub(fee.swapOrLiquifyAmount);

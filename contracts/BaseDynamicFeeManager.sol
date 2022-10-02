@@ -78,8 +78,17 @@ abstract contract BaseDynamicFeeManager is
     // Fee Decrease status
     bool private _feeDecreased = false;
 
-    // Swap percentage
-    uint256 private _swapPercentage = 100;
+    // Volume percentage for swap events
+    uint256 private _percentageVolumeSwap = 0;
+
+    // Volume percentage for liquify events
+    uint256 private _percentageVolumeLiquify = 0;
+
+    // Pancakeswap Pair (WSI <-> BUSD) address
+    address private _pancakePairBusdAddress;
+
+    // Pancakeswap Pair (WSI <-> BNB) address
+    address private _pancakePairBnbAddress;
 
     // WeSendit token
     IERC20 private _token;
@@ -194,21 +203,72 @@ abstract contract BaseDynamicFeeManager is
         super._emergencyWithdrawToken(tokenToWithdraw, amount);
     }
 
-    function swapPercentage() public view override returns (uint256 value) {
-        return _swapPercentage;
+    function percentageVolumeSwap()
+        public
+        view
+        override
+        returns (uint256 value)
+    {
+        return _percentageVolumeSwap;
     }
 
-    function setSwapPercentage(uint256 value)
+    function setPercentageVolumeSwap(uint256 value)
         external
         override
         onlyRole(ADMIN)
     {
         require(
-            _swapPercentage >= 0 && _swapPercentage <= 100,
-            "DynamicFeeManager: Invalid value for swap percentage"
+            value >= 0 && value <= 100,
+            "DynamicFeeManager: Invalid swap percentage volume value"
         );
 
-        _swapPercentage = value;
+        _percentageVolumeSwap = value;
+
+        emit PercentageVolumeSwapUpdated(value);
+    }
+
+    function percentageVolumeLiquify()
+        public
+        view
+        override
+        returns (uint256 value)
+    {
+        return _percentageVolumeLiquify;
+    }
+
+    function setPercentageVolumeLiquify(uint256 value)
+        external
+        override
+        onlyRole(ADMIN)
+    {
+        require(
+            value >= 0 && value <= 100,
+            "DynamicFeeManager: Invalid liquify percentage volume value"
+        );
+
+        _percentageVolumeLiquify = value;
+
+        emit PercentageVolumeLiquifyUpdated(value);
+    }
+
+    function pancakePairBusdAddress() public view returns (address value) {
+        return _pancakePairBusdAddress;
+    }
+
+    function setPancakePairBusdAddress(address value) external {
+        _pancakePairBusdAddress = value;
+
+        emit PancakePairBusdUpdated(value);
+    }
+
+    function pancakePairBnbAddress() public view returns (address value) {
+        return _pancakePairBnbAddress;
+    }
+
+    function setPancakePairBnbAddress(address value) external {
+        _pancakePairBnbAddress = value;
+
+        emit PancakePairBnbUpdated(value);
     }
 
     function token() public view override returns (IERC20 value) {
@@ -344,5 +404,40 @@ abstract contract BaseDynamicFeeManager is
             destination,
             block.timestamp
         );
+    }
+
+    /**
+     * Returns the amount used for swap / liquify based on volume percentage for swap / liquify
+     *
+     * @param swapOrLiquifyAmount uint256 - Fee entry swap or liquify amount
+     * @param percentageVolume uint256 - Volume percentage for swap / liquify
+     * @param pancakePairAddress address - Pancakeswap pair address to use for volume
+     *
+     * @return amount uint256 - Amount used for swap / liquify
+     */
+    function _getSwapOrLiquifyAmount(
+        uint256 swapOrLiquifyAmount,
+        uint256 percentageVolume,
+        address pancakePairAddress
+    ) internal view returns (uint256 amount) {
+        if (pancakePairAddress == address(0) || percentageVolume == 0) {
+            return swapOrLiquifyAmount;
+        }
+
+        // Get pancakeswap pair token balance to identify, how many
+        // token are currently on the market
+        uint256 pancakePairTokenBalance = token().balanceOf(pancakePairAddress);
+
+        // Calculate percentual amount of volume
+        uint256 percentualAmount = pancakePairTokenBalance
+            .mul(percentageVolume)
+            .div(100);
+
+        // Do not exceed swap or liquify amount from fee entry
+        if (percentualAmount >= swapOrLiquifyAmount) {
+            return swapOrLiquifyAmount;
+        }
+
+        return percentualAmount;
     }
 }

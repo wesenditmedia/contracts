@@ -124,11 +124,32 @@ interface IDynamicFeeManager {
     event FeeLimitsDecreased();
 
     /**
-     * Emitted on swap percentage update
+     * Emitted on volume percentage for swap events updated
      *
-     * @param newPercentage uint256 - New swap percentage
+     * @param newPercentage uint256 - New volume percentage for swap events
      */
-    event SwapPercentageUpdated(uint256 newPercentage);
+    event PercentageVolumeSwapUpdated(uint256 newPercentage);
+
+    /**
+     * Emitted on volume percentage for liquify events updated
+     *
+     * @param newPercentage uint256 - New volume percentage for liquify events
+     */
+    event PercentageVolumeLiquifyUpdated(uint256 newPercentage);
+
+    /**
+     * Emitted on Pancakeswap pair (WSI <-> BUSD) address updated
+     *
+     * @param newAddress address - New pair address
+     */
+    event PancakePairBusdUpdated(address newAddress);
+
+    /**
+     * Emitted on Pancakeswap pair (WSI <-> BNB) address updated
+     *
+     * @param newAddress address - New pair address
+     */
+    event PancakePairBnbUpdated(address newAddress);
 
     /**
      * Emitted on swap and liquify event
@@ -295,18 +316,62 @@ interface IDynamicFeeManager {
     function decreaseFeeLimits() external;
 
     /**
-     * Returns the current swap percentage
+     * Returns the current volume percentage for swap events
      *
-     * @return value uint256 - Swap percentage
+     * @return value uint256 - Volume percentage for swap events
      */
-    function swapPercentage() external view returns (uint256 value);
+    function percentageVolumeSwap() external view returns (uint256 value);
 
     /**
-     * Sets the swap percentage
+     * Sets the volume percentage for swap events
+     * If set to zero, swapping based on volume will be disabled and fee.swapOrLiquifyAmount is used.
      *
-     * @param value uint256 - New swap percentage (values from 0 to 100)
+     * @param value uint256 - New volume percentage for swapping
      */
-    function setSwapPercentage(uint256 value) external;
+    function setPercentageVolumeSwap(uint256 value) external;
+
+    /**
+     * Returns the current volume percentage for liquify events
+     *
+     * @return value uint256 - Volume percentage for liquify events
+     */
+    function percentageVolumeLiquify() external view returns (uint256 value);
+
+    /**
+     * Sets the volume percentage for liquify events
+     * If set to zero, adding liquidity based on volume will be disabled and fee.swapOrLiquifyAmount is used.
+     *
+     * @param value uint256 - New volume percentage for adding liquidity
+     */
+    function setPercentageVolumeLiquify(uint256 value) external;
+
+    /**
+     * Returns the Pancakeswap pair address (WSI <-> BUSD)
+     *
+     * @return value address - Pair address
+     */
+    function pancakePairBusdAddress() external view returns (address value);
+
+    /**
+     * Sets the Pancakeswap pair address (WSI <-> BUSD)
+     *
+     * @param value address - New pair address
+     */
+    function setPancakePairBusdAddress(address value) external;
+
+    /**
+     * Returns the Pancakeswap pair address (WSI <-> BNB)
+     *
+     * @return value address - Pair address
+     */
+    function pancakePairBnbAddress() external view returns (address value);
+
+    /**
+     * Sets the Pancakeswap pair address (WSI <-> BNB)
+     *
+     * @param value address - New pair address
+     */
+    function setPancakePairBnbAddress(address value) external;
 
     /**
      * Returns the WeSendit token instance

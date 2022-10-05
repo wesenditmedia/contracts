@@ -134,7 +134,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         }
 
         require(
-            tFees <= amount.mul(transactionFeeLimit()).div(FEE_DIVIDER),
+            tFees <= amount.div(FEE_DIVIDER).mul(transactionFeeLimit()),
             "DynamicFeeManager: Transaction fees exceeding limit"
         );
 
@@ -311,7 +311,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         pure
         returns (uint256 tFee)
     {
-        return amount.mul(percentage).div(FEE_DIVIDER); // ex. 125/100000 = 0.000125 = 0.0125%
+        return amount.div(FEE_DIVIDER).mul(percentage); // ex. 125/100000 = 0.000125 = 0.0125%
     }
 
     /**

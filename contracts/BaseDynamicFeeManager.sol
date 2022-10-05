@@ -429,9 +429,9 @@ abstract contract BaseDynamicFeeManager is
         uint256 pancakePairTokenBalance = token().balanceOf(pancakePairAddress);
 
         // Calculate percentual amount of volume
-        uint256 percentualAmount = pancakePairTokenBalance
-            .mul(percentageVolume)
-            .div(100);
+        uint256 percentualAmount = pancakePairTokenBalance.div(100).mul(
+            percentageVolume
+        );
 
         // Do not exceed swap or liquify amount from fee entry
         if (percentualAmount >= swapOrLiquifyAmount) {

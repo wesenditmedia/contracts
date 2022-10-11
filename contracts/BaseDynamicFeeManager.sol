@@ -133,23 +133,10 @@ abstract contract BaseDynamicFeeManager is
         return feeEntryAmounts[id];
     }
 
-    function feesEnabled() public view override returns (bool) {
-        return _feesEnabled;
-    }
-
     function setFeesEnabled(bool value) external override onlyRole(ADMIN) {
         _feesEnabled = value;
 
         emit FeeEnabledUpdated(value);
-    }
-
-    function pancakeRouter()
-        public
-        view
-        override
-        returns (IPancakeRouter02 value)
-    {
-        return _pancakeRouter;
     }
 
     function setPancakeRouter(address value) external override onlyRole(ADMIN) {
@@ -160,10 +147,6 @@ abstract contract BaseDynamicFeeManager is
 
         _pancakeRouter = IPancakeRouter02(value);
         emit PancakeRouterUpdated(value);
-    }
-
-    function busdAddress() public view override returns (address value) {
-        return _busdAddress;
     }
 
     function setBusdAddress(address value) external override onlyRole(ADMIN) {
@@ -178,23 +161,6 @@ abstract contract BaseDynamicFeeManager is
 
     function feeDecreased() external view override returns (bool value) {
         return _feeDecreased;
-    }
-
-    function feePercentageLimit() public view override returns (uint256 value) {
-        return
-            _feeDecreased ? FEE_PERCENTAGE_LIMIT : INITIAL_FEE_PERCENTAGE_LIMIT;
-    }
-
-    function transactionFeeLimit()
-        public
-        view
-        override
-        returns (uint256 value)
-    {
-        return
-            _feeDecreased
-                ? TRANSACTION_FEE_LIMIT
-                : INITIAL_TRANSACTION_FEE_LIMIT;
     }
 
     function decreaseFeeLimits() external override onlyRole(ADMIN) {
@@ -224,15 +190,6 @@ abstract contract BaseDynamicFeeManager is
         super._emergencyWithdrawToken(tokenToWithdraw, amount);
     }
 
-    function percentageVolumeSwap()
-        public
-        view
-        override
-        returns (uint256 value)
-    {
-        return _percentageVolumeSwap;
-    }
-
     function setPercentageVolumeSwap(uint256 value)
         external
         override
@@ -246,15 +203,6 @@ abstract contract BaseDynamicFeeManager is
         _percentageVolumeSwap = value;
 
         emit PercentageVolumeSwapUpdated(value);
-    }
-
-    function percentageVolumeLiquify()
-        public
-        view
-        override
-        returns (uint256 value)
-    {
-        return _percentageVolumeLiquify;
     }
 
     function setPercentageVolumeLiquify(uint256 value)
@@ -272,15 +220,6 @@ abstract contract BaseDynamicFeeManager is
         emit PercentageVolumeLiquifyUpdated(value);
     }
 
-    function pancakePairBusdAddress()
-        public
-        view
-        override
-        returns (address value)
-    {
-        return _pancakePairBusdAddress;
-    }
-
     function setPancakePairBusdAddress(address value)
         external
         override
@@ -296,15 +235,6 @@ abstract contract BaseDynamicFeeManager is
         emit PancakePairBusdUpdated(value);
     }
 
-    function pancakePairBnbAddress()
-        public
-        view
-        override
-        returns (address value)
-    {
-        return _pancakePairBnbAddress;
-    }
-
     function setPancakePairBnbAddress(address value)
         external
         override
@@ -318,6 +248,76 @@ abstract contract BaseDynamicFeeManager is
         _pancakePairBnbAddress = value;
 
         emit PancakePairBnbUpdated(value);
+    }
+
+    function feesEnabled() public view override returns (bool) {
+        return _feesEnabled;
+    }
+
+    function pancakeRouter()
+        public
+        view
+        override
+        returns (IPancakeRouter02 value)
+    {
+        return _pancakeRouter;
+    }
+
+    function busdAddress() public view override returns (address value) {
+        return _busdAddress;
+    }
+
+    function feePercentageLimit() public view override returns (uint256 value) {
+        return
+            _feeDecreased ? FEE_PERCENTAGE_LIMIT : INITIAL_FEE_PERCENTAGE_LIMIT;
+    }
+
+    function transactionFeeLimit()
+        public
+        view
+        override
+        returns (uint256 value)
+    {
+        return
+            _feeDecreased
+                ? TRANSACTION_FEE_LIMIT
+                : INITIAL_TRANSACTION_FEE_LIMIT;
+    }
+
+    function percentageVolumeSwap()
+        public
+        view
+        override
+        returns (uint256 value)
+    {
+        return _percentageVolumeSwap;
+    }
+
+    function percentageVolumeLiquify()
+        public
+        view
+        override
+        returns (uint256 value)
+    {
+        return _percentageVolumeLiquify;
+    }
+
+    function pancakePairBusdAddress()
+        public
+        view
+        override
+        returns (address value)
+    {
+        return _pancakePairBusdAddress;
+    }
+
+    function pancakePairBnbAddress()
+        public
+        view
+        override
+        returns (address value)
+    {
+        return _pancakePairBnbAddress;
     }
 
     function token() public view override returns (IERC20 value) {

@@ -38,22 +38,9 @@ abstract contract BaseWeSenditToken is
         return INITIAL_SUPPLY;
     }
 
-    function paused() public view override returns (bool) {
-        return _paused;
-    }
-
     function unpause() external override onlyRole(ADMIN) {
         _paused = false;
         emit Unpaused();
-    }
-
-    function dynamicFeeManager()
-        public
-        view
-        override
-        returns (IDynamicFeeManager manager)
-    {
-        return _dynamicFeeManager;
     }
 
     function setDynamicFeeManager(address value)
@@ -79,5 +66,18 @@ abstract contract BaseWeSenditToken is
         onlyRole(ADMIN)
     {
         super._emergencyWithdrawToken(token, amount);
+    }
+
+    function paused() public view override returns (bool) {
+        return _paused;
+    }
+
+    function dynamicFeeManager()
+        public
+        view
+        override
+        returns (IDynamicFeeManager manager)
+    {
+        return _dynamicFeeManager;
     }
 }

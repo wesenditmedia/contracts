@@ -19,17 +19,17 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
         _mint(addressTotalSupply, TOTAL_SUPPLY);
     }
 
-    /**
-     * @inheritdoc ERC20
-     */
-    function _beforeTokenTransfer(
+    function transferFromNoFees(
         address from,
         address to,
         uint256 amount
-    ) internal virtual override {
-        super._beforeTokenTransfer(from, to, amount);
+    ) external virtual override returns (bool) {
+        require(
+            _msgSender() == address(dynamicFeeManager()),
+            "WeSendit: Can only be called by Dynamic Fee Manager"
+        );
 
-        _preValidateTransfer(from);
+        return super.transferFrom(from, to, amount);
     }
 
     /**
@@ -67,17 +67,26 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
         return super.transferFrom(from, to, tTotal);
     }
 
-    function transferFromNoFees(
+    /**
+     * @inheritdoc ERC20
+     */
+    function _beforeTokenTransfer(
         address from,
         address to,
         uint256 amount
-    ) external virtual override returns (bool) {
-        require(
-            _msgSender() == address(dynamicFeeManager()),
-            "WeSendit: Can only be called by Dynamic Fee Manager"
-        );
+    ) internal virtual override {
+        super._beforeTokenTransfer(from, to, amount);
 
-        return super.transferFrom(from, to, amount);
+        _preValidateTransfer(from);
+    }
+
+    // Needed since we inherit from ERC20 and ERC20Capped
+    function _mint(address account, uint256 amount)
+        internal
+        virtual
+        override(ERC20, ERC20Capped)
+    {
+        super._mint(account, amount);
     }
 
     /**
@@ -129,14 +138,5 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
                 hasRole(BYPASS_PAUSE, from),
             "WeSendit: transactions are paused"
         );
-    }
-
-    // Needed since we inherit from ERC20 and ERC20Capped
-    function _mint(address account, uint256 amount)
-        internal
-        virtual
-        override(ERC20, ERC20Capped)
-    {
-        super._mint(account, amount);
     }
 }

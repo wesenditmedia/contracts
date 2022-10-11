@@ -477,6 +477,54 @@ describe("Dynamic Fee Manager", function () {
       expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0.000000000025'))
     })
 
+    it('should calculate correct fee for single entry (6)', async function () {
+      // Arrange
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 7500 })) // 7.5%
+
+      // Act
+      await contract.reflectFees(
+        alice.address,
+        bob.address,
+        parseEther('0.0001337')
+      )
+
+      // Assert
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0.0000100275'))
+    })
+
+    it('should calculate correct fee for single entry (7)', async function () {
+      // Arrange
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 178 })) // 0.178%
+
+      // Act
+      await contract.reflectFees(
+        alice.address,
+        bob.address,
+        parseEther('0.0001337')
+      )
+
+      // Assert
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0.000000237986'))
+    })
+
+    it('should calculate correct fee for single entry (8)', async function () {
+      // Arrange
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1500 })) // 1.5%
+      // 100 are already approved from beforeEach, add the missing 123456689 for the transaction amount
+      await mockWsi.transfer(alice.address, parseEther('123456689'))
+      await mockWsi.connect(alice).approve(contract.address, parseEther('123456689'))
+
+      // Act
+      await contract.reflectFees(
+        alice.address,
+        bob.address,
+        parseEther('123456789')
+      )
+
+      // Assert
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('1851851.835'))
+    })
+
     for (const amount of [1, 10]) {
       it(`should calculate correct fee for small amount (${amount})`, async function () {
         // Arrange
@@ -508,8 +556,7 @@ describe("Dynamic Fee Manager", function () {
           )
 
           // Assert
-          console.log(((amount / FEE_DIVIDER.toNumber()) * percentage))
-          if (((amount / FEE_DIVIDER.toNumber()) * percentage) >= (1 * percentage)) {
+          if ((amount * percentage / FEE_DIVIDER.toNumber()) >= 1) {
             expect(await mockWsi.balanceOf(addrs[0].address)).to.not.equal(0)
           } else {
             expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(0)
@@ -2077,7 +2124,7 @@ describe("Dynamic Fee Manager", function () {
         expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('25'))
       })
 
-      it('should add liquidity percentual based on volume', async function () {
+      it('should add liquidity percentual based on volume (1)', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doLiquify: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
         await contract.setPercentageVolumeLiquify(2) // 2% of volume
@@ -2158,6 +2205,48 @@ describe("Dynamic Fee Manager", function () {
         expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
         expect(await mockWsi.balanceOf(bob.address)).to.equal(parseEther('190'))
         expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('204')) // 100 from arrange
+      })
+
+      it('should add liquidity percentual based on volume (3)', async function () {
+        // Arrange
+        await mockWsi.transfer(alice.address, parseEther('125'))
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[0].address, doLiquify: true, swapOrLiquifyAmount: parseEther('5') })) // 2.5%
+        await contract.setPercentageVolumeLiquify(2) // 2% of volume
+        await contract.setPancakePairBnbAddress(mockPancakePair.address)
+
+        // Assigning 225 WSI to Pancakepair as volume.
+        // So we'd swap a maximum of two percent of the volume, which equals 5.625 WSI
+        await mockWsi.transfer(mockPancakePair.address, parseEther('225'))
+
+        // Act
+        await mockWsi.connect(alice).transfer(bob.address, parseEther('225'))
+
+        // Assert
+        expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.have.not.been.called
+
+        expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.have.been.calledOnce
+        expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.be.calledWith(
+          parseEther('2.25'),
+          0,
+          [mockWsi.address, mockBnb.address],
+          contract.address,
+          await getBlockTimestamp()
+        )
+
+        expect(mockPancakeRouter.addLiquidityETH).to.have.been.calledOnce
+        expect(mockPancakeRouter.addLiquidityETH).to.be.calledWith(
+          mockWsi.address,
+          parseEther('2.25'),
+          0,
+          0,
+          addrs[0].address,
+          await getBlockTimestamp()
+        )
+
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(bob.address)).to.equal(parseEther('219.375'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('229.5')) // 225 from arrange
       })
 
       it('should not add liquidity percentual based on volume if swapOrLiquify amount is lower', async function () {
@@ -2355,7 +2444,7 @@ describe("Dynamic Fee Manager", function () {
         expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('25'))
       })
 
-      it('should swap percentual based on volume', async function () {
+      it('should swap percentual based on volume (1)', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
         await contract.setPercentageVolumeSwap(2) // 2% of volume
@@ -2416,6 +2505,38 @@ describe("Dynamic Fee Manager", function () {
         expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
         expect(await mockWsi.balanceOf(bob.address)).to.equal(parseEther('190'))
         expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('204')) // 100 from arrange
+      })
+
+      it('should swap percentual based on volume (3)', async function () {
+        // Arrange
+        await mockWsi.transfer(alice.address, parseEther('125'))
+        await contract.addFee(...getFeeEntryArgs({ percentage: 2500, destination: addrs[0].address, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('5') })) // 2.5%
+        await contract.setPercentageVolumeSwap(2) // 2% of volume
+        await contract.setPancakePairBusdAddress(mockPancakePair.address)
+
+        // Assigning 225 WSI to Pancakepair as volume.
+        // So we'd swap a maximum of two percent of the volume, which equals 5.625 WSI
+        await mockWsi.transfer(mockPancakePair.address, parseEther('225'))
+
+        // Act
+        await mockWsi.connect(alice).transfer(bob.address, parseEther('225'))
+
+        // Assert
+        expect(mockPancakeRouter.swapExactTokensForETHSupportingFeeOnTransferTokens).to.have.not.been.called
+
+        expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.have.been.calledOnce
+        expect(mockPancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens).to.be.calledWith(
+          parseEther('4.5'),
+          0,
+          [mockWsi.address, mockBusd.address],
+          addrs[0].address,
+          await getBlockTimestamp()
+        )
+
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
+        expect(await mockWsi.balanceOf(bob.address)).to.equal(parseEther('219.375'))
+        expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('229.5')) // +225 from arrange
       })
 
       it('should not swap percentual based on volume if swapOrLiquify amount is lower', async function () {

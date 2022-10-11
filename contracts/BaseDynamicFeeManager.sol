@@ -41,19 +41,19 @@ abstract contract BaseDynamicFeeManager is
     bytes32 public constant CALL_REFLECT_FEES = keccak256("CALL_REFLECT_FEES");
 
     // Fee percentage limit
-    uint256 public constant FEE_PERCENTAGE_LIMIT = 10000; // 10%
+    uint256 public constant FEE_PERCENTAGE_LIMIT = 10_000; // 10%
 
     // Fee percentage limit on creation
-    uint256 public constant INITIAL_FEE_PERCENTAGE_LIMIT = 25000; // 25%
+    uint256 public constant INITIAL_FEE_PERCENTAGE_LIMIT = 25_000; // 25%
 
     // Transaction fee limit
-    uint256 public constant TRANSACTION_FEE_LIMIT = 10000; // 10%
+    uint256 public constant TRANSACTION_FEE_LIMIT = 10_000; // 10%
 
     // Transaction fee limit on creation
-    uint256 public constant INITIAL_TRANSACTION_FEE_LIMIT = 25000; // 25%
+    uint256 public constant INITIAL_TRANSACTION_FEE_LIMIT = 25_000; // 25%
 
     // Fee divider
-    uint256 internal constant FEE_DIVIDER = 100000;
+    uint256 internal constant FEE_DIVIDER = 100_000;
 
     // Wildcard address for fees
     address internal constant WHITELIST_ADDRESS =
@@ -63,10 +63,10 @@ abstract contract BaseDynamicFeeManager is
     uint256 internal constant MAX_FEE_AMOUNT = 30;
 
     // List of all currently added fees
-    FeeEntry[] internal _fees;
+    FeeEntry[] internal _Fees;
 
     // Mapping id to current liquify or swap amounts
-    mapping(bytes32 => uint256) internal _amounts;
+    mapping(bytes32 => uint256) internal _Amounts;
 
     // Fees enabled state
     bool private _feesEnabled = false;
@@ -121,11 +121,16 @@ abstract contract BaseDynamicFeeManager is
         override
         returns (FeeEntry memory fee)
     {
-        return _fees[index];
+        return _Fees[index];
     }
 
-    function getFeeAmount(bytes32 id) external view returns (uint256 amount) {
-        return _amounts[id];
+    function getFeeAmount(bytes32 id)
+        external
+        view
+        override
+        returns (uint256 amount)
+    {
+        return _Amounts[id];
     }
 
     function feesEnabled() public view override returns (bool) {
@@ -267,7 +272,12 @@ abstract contract BaseDynamicFeeManager is
         emit PercentageVolumeLiquifyUpdated(value);
     }
 
-    function pancakePairBusdAddress() public view returns (address value) {
+    function pancakePairBusdAddress()
+        public
+        view
+        override
+        returns (address value)
+    {
         return _pancakePairBusdAddress;
     }
 
@@ -286,7 +296,12 @@ abstract contract BaseDynamicFeeManager is
         emit PancakePairBusdUpdated(value);
     }
 
-    function pancakePairBnbAddress() public view returns (address value) {
+    function pancakePairBnbAddress()
+        public
+        view
+        override
+        returns (address value)
+    {
         return _pancakePairBnbAddress;
     }
 
@@ -464,8 +479,8 @@ abstract contract BaseDynamicFeeManager is
         uint256 pancakePairTokenBalance = token().balanceOf(pancakePairAddress);
 
         // Calculate percentual amount of volume
-        uint256 percentualAmount = (pancakePairTokenBalance / 100) *
-            percentageVolume;
+        uint256 percentualAmount = (pancakePairTokenBalance *
+            percentageVolume) / 100;
 
         // Do not exceed swap or liquify amount from fee entry
         if (percentualAmount >= swapOrLiquifyAmount) {

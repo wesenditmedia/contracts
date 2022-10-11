@@ -67,6 +67,7 @@ describe("Dynamic Fee Manager", function () {
   let RECEIVER_FEE_WHITELIST_ROLE: string
   let BYPASS_SWAP_AND_LIQUIFY_ROLE: string
   let EXCLUDE_WILDCARD_FEE_ROLE: string
+  let CALL_REFLECT_FEES_ROLE: string
 
   let INITIAL_FEE_PERCENTAGE_LIMIT: BigNumber
   let INITIAL_TRANSACTION_FEE_LIMIT: BigNumber
@@ -102,6 +103,7 @@ describe("Dynamic Fee Manager", function () {
     RECEIVER_FEE_WHITELIST_ROLE = await contract.RECEIVER_FEE_WHITELIST()
     BYPASS_SWAP_AND_LIQUIFY_ROLE = await contract.BYPASS_SWAP_AND_LIQUIFY()
     EXCLUDE_WILDCARD_FEE_ROLE = await contract.EXCLUDE_WILDCARD_FEE()
+    CALL_REFLECT_FEES_ROLE = await contract.CALL_REFLECT_FEES()
 
     INITIAL_FEE_PERCENTAGE_LIMIT = await contract.INITIAL_FEE_PERCENTAGE_LIMIT()
     INITIAL_TRANSACTION_FEE_LIMIT = await contract.INITIAL_TRANSACTION_FEE_LIMIT()
@@ -116,6 +118,7 @@ describe("Dynamic Fee Manager", function () {
     await contract.setBusdAddress(mockBusd.address)
     await contract.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, mockPancakePair.address)
     await contract.grantRole(EXCLUDE_WILDCARD_FEE_ROLE, mockPancakePair.address)
+    await contract.grantRole(CALL_REFLECT_FEES_ROLE, mockWsi.address)
   });
 
   describe("Deployment", function () {
@@ -143,6 +146,7 @@ describe("Dynamic Fee Manager", function () {
       expect(await contract.getRoleAdmin(RECEIVER_FEE_WHITELIST_ROLE)).to.equal(ADMIN_ROLE)
       expect(await contract.getRoleAdmin(BYPASS_SWAP_AND_LIQUIFY_ROLE)).to.equal(ADMIN_ROLE)
       expect(await contract.getRoleAdmin(EXCLUDE_WILDCARD_FEE_ROLE)).to.equal(ADMIN_ROLE)
+      expect(await contract.getRoleAdmin(CALL_REFLECT_FEES_ROLE)).to.equal(ADMIN_ROLE)
     })
 
     it('should decrease fee limits', async function () {
@@ -180,7 +184,7 @@ describe("Dynamic Fee Manager", function () {
         // Arrange & Assert
         await expect(contract.addFee(...getFeeEntryArgs({
           percentage: 100001 // 100.001%
-        }))).to.be.revertedWith('DynamicFeeManager: Invalid fee percentage')
+        }))).to.be.revertedWith('DynamicFeeManager: Fee percentage exceeds limit')
       })
 
       it('should fail to add fee if liquify and swap is enabled', async function () {
@@ -395,6 +399,7 @@ describe("Dynamic Fee Manager", function () {
       await contract.decreaseFeeLimits()
       await mockWsi.transfer(alice.address, parseEther('100'))
       await mockWsi.connect(alice).approve(contract.address, parseEther('100'))
+      await contract.grantRole(CALL_REFLECT_FEES_ROLE, owner.address)
     })
 
     it('should calculate correct fee for single entry', async function () {
@@ -768,6 +773,7 @@ describe("Dynamic Fee Manager", function () {
       await contract.decreaseFeeLimits()
       await mockWsi.transfer(alice.address, parseEther('100'))
       await mockWsi.connect(alice).approve(contract.address, parseEther('100'))
+      await contract.grantRole(CALL_REFLECT_FEES_ROLE, alice.address)
     })
 
     describe('Basic Fees', function () {
@@ -945,7 +951,7 @@ describe("Dynamic Fee Manager", function () {
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
 
         // Act
-        await contract.reflectFees(
+        await contract.connect(alice).reflectFees(
           alice.address,
           bob.address,
           parseEther('100')
@@ -964,7 +970,7 @@ describe("Dynamic Fee Manager", function () {
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
 
         // Act & Assert
-        await expect(contract.reflectFees(
+        await expect(contract.connect(alice).reflectFees(
           alice.address,
           bob.address,
           parseEther('100')
@@ -981,7 +987,7 @@ describe("Dynamic Fee Manager", function () {
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
 
         // Act & Assert
-        await expect(contract.reflectFees(
+        await expect(contract.connect(alice).reflectFees(
           alice.address,
           bob.address,
           parseEther('100')
@@ -1997,7 +2003,7 @@ describe("Dynamic Fee Manager", function () {
           parseEther('2.5'),
           0,
           [mockWsi.address, mockBnb.address],
-          addrs[0].address,
+          contract.address,
           await getBlockTimestamp()
         )
 
@@ -2050,7 +2056,7 @@ describe("Dynamic Fee Manager", function () {
           parseEther('12.5'),
           0,
           [mockWsi.address, mockBnb.address],
-          addrs[0].address,
+          contract.address,
           await getBlockTimestamp()
         )
 
@@ -2092,7 +2098,7 @@ describe("Dynamic Fee Manager", function () {
           parseEther('1'),
           0,
           [mockWsi.address, mockBnb.address],
-          addrs[0].address,
+          contract.address,
           await getBlockTimestamp()
         )
 
@@ -2134,7 +2140,7 @@ describe("Dynamic Fee Manager", function () {
           parseEther('2'),
           0,
           [mockWsi.address, mockBnb.address],
-          addrs[0].address,
+          contract.address,
           await getBlockTimestamp()
         )
 
@@ -2175,7 +2181,7 @@ describe("Dynamic Fee Manager", function () {
           parseEther('2.5'),
           0,
           [mockWsi.address, mockBnb.address],
-          addrs[0].address,
+          contract.address,
           await getBlockTimestamp()
         )
 
@@ -2216,7 +2222,7 @@ describe("Dynamic Fee Manager", function () {
           parseEther('2.5'),
           0,
           [mockWsi.address, mockBnb.address],
-          addrs[0].address,
+          contract.address,
           await getBlockTimestamp()
         )
 
@@ -2240,7 +2246,7 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doLiquify: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
         await contract.setPercentageVolumeLiquify(2) // 2% of volume
-        await contract.setPancakePairBnbAddress(ethers.constants.AddressZero)
+        expect(await contract.pancakePairBnbAddress()).to.equal(ethers.constants.AddressZero)
 
         // Assigning 100 WSI to Pancakepair as volume.
         // So we'd swap a maximum of rwo percent of the volume, which equals 2 WSI
@@ -2257,7 +2263,7 @@ describe("Dynamic Fee Manager", function () {
           parseEther('2.5'),
           0,
           [mockWsi.address, mockBnb.address],
-          addrs[0].address,
+          contract.address,
           await getBlockTimestamp()
         )
 
@@ -2478,7 +2484,7 @@ describe("Dynamic Fee Manager", function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
         await contract.setPercentageVolumeSwap(2)
-        await contract.setPancakePairBusdAddress(ethers.constants.AddressZero)
+        expect(await contract.pancakePairBusdAddress()).to.equal(ethers.constants.AddressZero)
 
         // Assigning 100 WSI to Pancakepair as volume.
         // So we'd swap a maximum of two percent of the volume, which equals 2 WSI

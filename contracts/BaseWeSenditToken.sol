@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -34,7 +34,7 @@ abstract contract BaseWeSenditToken is
     /**
      * Getter & Setter
      */
-    function initialSupply() public pure override returns (uint256) {
+    function initialSupply() external pure override returns (uint256) {
         return INITIAL_SUPPLY;
     }
 

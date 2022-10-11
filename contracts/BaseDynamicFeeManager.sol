@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -40,6 +40,9 @@ abstract contract BaseDynamicFeeManager is
     bytes32 public constant EXCLUDE_WILDCARD_FEE =
         keccak256("EXCLUDE_WILDCARD_FEE");
 
+    // Role allowed to call reflectFees
+    bytes32 public constant CALL_REFLECT_FEES = keccak256("CALL_REFLECT_FEES");
+
     // Fee percentage limit
     uint256 public constant FEE_PERCENTAGE_LIMIT = 10000; // 10%
 
@@ -58,6 +61,9 @@ abstract contract BaseDynamicFeeManager is
     // Wildcard address for fees
     address internal constant WHITELIST_ADDRESS =
         0x000000000000000000000000000000000000dEaD;
+
+    // Max. amount for fee entries
+    uint256 internal constant MAX_FEE_AMOUNT = 30;
 
     // List of all currently added fees
     FeeEntry[] internal _fees;
@@ -103,6 +109,7 @@ abstract contract BaseDynamicFeeManager is
         _setRoleAdmin(RECEIVER_FEE_WHITELIST, ADMIN);
         _setRoleAdmin(BYPASS_SWAP_AND_LIQUIFY, ADMIN);
         _setRoleAdmin(EXCLUDE_WILDCARD_FEE, ADMIN);
+        _setRoleAdmin(CALL_REFLECT_FEES, ADMIN);
 
         // Create WeSendit token instance
         _token = IERC20(wesenditToken);
@@ -112,7 +119,7 @@ abstract contract BaseDynamicFeeManager is
      * Getter & Setter
      */
     function getFee(uint256 index)
-        public
+        external
         view
         override
         returns (FeeEntry memory fee)
@@ -120,7 +127,7 @@ abstract contract BaseDynamicFeeManager is
         return _fees[index];
     }
 
-    function getFeeAmount(bytes32 id) public view returns (uint256 amount) {
+    function getFeeAmount(bytes32 id) external view returns (uint256 amount) {
         return _amounts[id];
     }
 
@@ -130,6 +137,8 @@ abstract contract BaseDynamicFeeManager is
 
     function setFeesEnabled(bool value) external override onlyRole(ADMIN) {
         _feesEnabled = value;
+
+        emit FeeEnabledUpdated(value);
     }
 
     function pancakeRouter()
@@ -142,6 +151,11 @@ abstract contract BaseDynamicFeeManager is
     }
 
     function setPancakeRouter(address value) external override onlyRole(ADMIN) {
+        require(
+            value != address(0),
+            "DynamicFeeManager: Cannot set Pancake Router to zero address"
+        );
+
         _pancakeRouter = IPancakeRouter02(value);
         emit PancakeRouterUpdated(value);
     }
@@ -151,11 +165,16 @@ abstract contract BaseDynamicFeeManager is
     }
 
     function setBusdAddress(address value) external override onlyRole(ADMIN) {
+        require(
+            value != address(0),
+            "DynamicFeeManager: Cannot set BUSD to zero address"
+        );
+
         _busdAddress = value;
         emit BusdAddressUpdated(value);
     }
 
-    function feeDecreased() public view override returns (bool value) {
+    function feeDecreased() external view override returns (bool value) {
         return _feeDecreased;
     }
 
@@ -218,7 +237,7 @@ abstract contract BaseDynamicFeeManager is
         onlyRole(ADMIN)
     {
         require(
-            value >= 0 && value <= 100,
+            value <= 100,
             "DynamicFeeManager: Invalid swap percentage volume value"
         );
 
@@ -242,7 +261,7 @@ abstract contract BaseDynamicFeeManager is
         onlyRole(ADMIN)
     {
         require(
-            value >= 0 && value <= 100,
+            value <= 100,
             "DynamicFeeManager: Invalid liquify percentage volume value"
         );
 
@@ -255,7 +274,16 @@ abstract contract BaseDynamicFeeManager is
         return _pancakePairBusdAddress;
     }
 
-    function setPancakePairBusdAddress(address value) external {
+    function setPancakePairBusdAddress(address value)
+        external
+        override
+        onlyRole(ADMIN)
+    {
+        require(
+            value != address(0),
+            "DynamicFeeManager: Cannot set BUSD pair to zero address"
+        );
+
         _pancakePairBusdAddress = value;
 
         emit PancakePairBusdUpdated(value);
@@ -265,7 +293,16 @@ abstract contract BaseDynamicFeeManager is
         return _pancakePairBnbAddress;
     }
 
-    function setPancakePairBnbAddress(address value) external {
+    function setPancakePairBnbAddress(address value)
+        external
+        override
+        onlyRole(ADMIN)
+    {
+        require(
+            value != address(0),
+            "DynamicFeeManager: Cannot set BNB pair to zero address"
+        );
+
         _pancakePairBnbAddress = value;
 
         emit PancakePairBnbUpdated(value);
@@ -296,7 +333,7 @@ abstract contract BaseDynamicFeeManager is
         uint256 initialBalance = address(this).balance;
 
         // swap tokens for BNB
-        _swapTokensForBnb(half, destination); // <- this breaks the BNB -> WSI swap when swap+liquify is triggered
+        _swapTokensForBnb(half, address(this)); // <- this breaks the BNB -> WSI swap when swap+liquify is triggered
 
         // how much BNB did we just swap into?
         uint256 newBalance = address(this).balance.sub(initialBalance);
@@ -354,8 +391,8 @@ abstract contract BaseDynamicFeeManager is
             "DynamicFeeManager: Failed to approve token for swap to BUSD"
         );
 
-        // capture the contract's current BUSD balance.
-        uint256 initialBalance = token().balanceOf(destination);
+        // capture the contract's current balances
+        uint256 initialBalance = IERC20(busdAddress()).balanceOf(destination);
 
         // make the swap
         pancakeRouter().swapExactTokensForTokensSupportingFeeOnTransferTokens(
@@ -367,7 +404,9 @@ abstract contract BaseDynamicFeeManager is
         );
 
         // how much BUSD did we just swap into?
-        uint256 newBalance = token().balanceOf(destination).sub(initialBalance);
+        uint256 newBalance = IERC20(busdAddress()).balanceOf(destination).sub(
+            initialBalance
+        );
 
         emit SwapTokenForBusd(
             address(token()),

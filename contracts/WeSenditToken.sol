@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -19,7 +19,7 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
         ERC20Capped(TOTAL_SUPPLY)
         BaseWeSenditToken()
     {
-        ERC20Capped._mint(addressTotalSupply, TOTAL_SUPPLY);
+        _mint(addressTotalSupply, TOTAL_SUPPLY);
     }
 
     /**

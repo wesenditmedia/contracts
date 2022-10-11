@@ -38,6 +38,7 @@ describe("WeSendit", function () {
 
   let BYPASS_SWAP_AND_LIQUIFY_ROLE: string
   let EXCLUDE_WILDCARD_FEE_ROLE: string
+  let CALL_REFLECT_FEES_ROLE: string
 
   const INITIAL_SUPPLY = parseEther('37500000')
   const TOTAL_SUPPLY = parseEther('1500000000')
@@ -63,10 +64,12 @@ describe("WeSendit", function () {
 
     BYPASS_SWAP_AND_LIQUIFY_ROLE = await mockDynamicFeeManager.BYPASS_SWAP_AND_LIQUIFY()
     EXCLUDE_WILDCARD_FEE_ROLE = await mockDynamicFeeManager.EXCLUDE_WILDCARD_FEE()
+    CALL_REFLECT_FEES_ROLE = await mockDynamicFeeManager.CALL_REFLECT_FEES()
     await mockDynamicFeeManager.setPancakeRouter(mockPancakeRouter.address)
     await mockDynamicFeeManager.setBusdAddress(mockBusd.address)
     await mockDynamicFeeManager.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, mockPancakePair.address)
     await mockDynamicFeeManager.grantRole(EXCLUDE_WILDCARD_FEE_ROLE, mockPancakePair.address)
+    await mockDynamicFeeManager.grantRole(CALL_REFLECT_FEES_ROLE, contract.address)
     await mockDynamicFeeManager.decreaseFeeLimits()
 
     ADMIN_ROLE = await contract.ADMIN()
@@ -210,7 +213,7 @@ describe("WeSendit", function () {
           parseEther('5'),
           0,
           [contract.address, mockBnb.address],
-          addrs[0].address,
+          mockDynamicFeeManager.address,
           await getBlockTimestamp()
         )
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -34,8 +34,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         uint256 expiresAt
     ) external override onlyRole(ADMIN) returns (uint256 index) {
         require(
-            percentage <= FEE_DIVIDER,
-            "DynamicFeeManager: Invalid fee percentage"
+            MAX_FEE_AMOUNT >= _fees.length,
+            "DynamicFeeManager: Amount of max. fees reached"
         );
         require(
             percentage <= feePercentageLimit(),
@@ -104,6 +104,11 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         address to,
         uint256 amount
     ) external override returns (uint256 tTotal, uint256 tFees) {
+        require(
+            hasRole(CALL_REFLECT_FEES, _msgSender()),
+            "DynamicFeeManager: Caller is missing required role"
+        );
+
         bool bypassFees = !feesEnabled() ||
             from == owner() ||
             hasRole(ADMIN, from) ||
@@ -120,7 +125,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             hasRole(BYPASS_SWAP_AND_LIQUIFY, from);
 
         // Loop over all fee entries and calculate plus reflect fee
-        for (uint256 i = 0; i < _fees.length; i++) {
+        uint256 feeAmount = _fees.length;
+        for (uint256 i = 0; i < feeAmount; i++) {
             FeeEntry memory fee = _fees[i];
 
             if (_isFeeEntryValid(fee) && _isFeeEntryMatching(fee, from, to)) {
@@ -185,6 +191,9 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         if (
             !bypassSwapAndLiquify && _amounts[fee.id] >= fee.swapOrLiquifyAmount
         ) {
+            // Capture WSI balance before swap / liquify
+            uint256 wsiBalanceBefore = token().balanceOf(address(this));
+
             if (fee.doSwapForBusd) {
                 // Swap token for BUSD
                 _swapTokensForBusd(
@@ -207,7 +216,13 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
                 );
             }
 
-            _amounts[fee.id] = _amounts[fee.id].sub(fee.swapOrLiquifyAmount);
+            // Capture WSI balance after swap / liquify
+            uint256 wsiBalanceAfter = token().balanceOf(address(this));
+
+            // Calculate real amount of tokens used for swap / liquify
+            uint256 wsiSwapped = wsiBalanceBefore.sub(wsiBalanceAfter);
+
+            _amounts[fee.id] = _amounts[fee.id].sub(wsiSwapped);
         }
 
         // Check if callback should be called on destination

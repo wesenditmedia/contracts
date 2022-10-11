@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Capped.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
@@ -12,8 +11,6 @@ import "./BaseWeSenditToken.sol";
  * @title WeSendit ERC20 token
  */
 contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
-    using SafeMath for uint256;
-
     constructor(address addressTotalSupply)
         ERC20("WeSendit", "WSI")
         ERC20Capped(TOTAL_SUPPLY)

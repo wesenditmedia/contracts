@@ -2,13 +2,10 @@
 pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 import "./MockPancakePair.sol";
 
 contract MockPancakeRouter {
-    using SafeMath for uint256;
-
     event MockEvent(uint256 value);
 
     address private immutable _weth;

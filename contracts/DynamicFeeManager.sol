@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "./BaseDynamicFeeManager.sol";
@@ -16,8 +15,6 @@ import "./interfaces/IWeSenditToken.sol";
  * Additonally, fees can be used to create liquidity on DEX or can be swapped to BUSD.
  */
 contract DynamicFeeManager is BaseDynamicFeeManager {
-    using SafeMath for uint256;
-
     constructor(address wesenditToken) BaseDynamicFeeManager(wesenditToken) {}
 
     receive() external payable {}
@@ -133,18 +130,18 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
                 uint256 tFee = _calculateFee(amount, fee.percentage);
 
                 if (tFee > 0) {
-                    tFees = tFees.add(tFee);
+                    tFees = tFees + tFee;
                     _reflectFee(from, to, tFee, fee, bypassSwapAndLiquify);
                 }
             }
         }
 
         require(
-            tFees <= amount.div(FEE_DIVIDER).mul(transactionFeeLimit()),
+            tFees <= (amount / FEE_DIVIDER) * transactionFeeLimit(),
             "DynamicFeeManager: Transaction fees exceeding limit"
         );
 
-        tTotal = amount.sub(tFees);
+        tTotal = amount - tFees;
         _validateFeeAmount(amount, tTotal, tFees);
 
         return (tTotal, tFees);
@@ -175,7 +172,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
                 ),
                 "DynamicFeeManager: Fee transfer to manager failed"
             );
-            _amounts[fee.id] = _amounts[fee.id].add(tFee);
+            _amounts[fee.id] = _amounts[fee.id] + tFee;
         } else {
             require(
                 IWeSenditToken(address(token())).transferFromNoFees(
@@ -220,9 +217,9 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             uint256 wsiBalanceAfter = token().balanceOf(address(this));
 
             // Calculate real amount of tokens used for swap / liquify
-            uint256 wsiSwapped = wsiBalanceBefore.sub(wsiBalanceAfter);
+            uint256 wsiSwapped = wsiBalanceBefore - wsiBalanceAfter;
 
-            _amounts[fee.id] = _amounts[fee.id].sub(wsiSwapped);
+            _amounts[fee.id] = _amounts[fee.id] - wsiSwapped;
         }
 
         // Check if callback should be called on destination
@@ -308,7 +305,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
     ) private pure {
         require(tTotal > 0, "DynamicFeeManager: invalid total amount");
         require(
-            tTotal.add(tFees) == amount,
+            tTotal + tFees == amount,
             "DynamicFeeManager: invalid transfer amount"
         );
     }
@@ -326,7 +323,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         pure
         returns (uint256 tFee)
     {
-        return amount.div(FEE_DIVIDER).mul(percentage); // ex. 125/100000 = 0.000125 = 0.0125%
+        return (amount / FEE_DIVIDER) * percentage; // ex. 125/100000 = 0.000125 = 0.0125%
     }
 
     /**

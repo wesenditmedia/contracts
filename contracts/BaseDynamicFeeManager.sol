@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
@@ -20,8 +19,6 @@ abstract contract BaseDynamicFeeManager is
     Ownable,
     ReentrancyGuard
 {
-    using SafeMath for uint256;
-
     // Role allowed to do admin operations like adding to fee whitelist, withdraw, etc.
     bytes32 public constant ADMIN = keccak256("ADMIN");
 
@@ -323,8 +320,8 @@ abstract contract BaseDynamicFeeManager is
         nonReentrant
     {
         // split the contract balance into halves
-        uint256 half = amount.div(2);
-        uint256 otherHalf = amount.sub(half);
+        uint256 half = amount / 2;
+        uint256 otherHalf = amount - half;
 
         // capture the contract's current BNB balance.
         // this is so that we can capture exactly the amount of BNB that the
@@ -336,7 +333,7 @@ abstract contract BaseDynamicFeeManager is
         _swapTokensForBnb(half, address(this)); // <- this breaks the BNB -> WSI swap when swap+liquify is triggered
 
         // how much BNB did we just swap into?
-        uint256 newBalance = address(this).balance.sub(initialBalance);
+        uint256 newBalance = address(this).balance - initialBalance;
 
         // add liquidity to uniswap
         _addLiquidity(otherHalf, newBalance, destination);
@@ -404,9 +401,8 @@ abstract contract BaseDynamicFeeManager is
         );
 
         // how much BUSD did we just swap into?
-        uint256 newBalance = IERC20(busdAddress()).balanceOf(destination).sub(
-            initialBalance
-        );
+        uint256 newBalance = IERC20(busdAddress()).balanceOf(destination) -
+            initialBalance;
 
         emit SwapTokenForBusd(
             address(token()),
@@ -468,9 +464,8 @@ abstract contract BaseDynamicFeeManager is
         uint256 pancakePairTokenBalance = token().balanceOf(pancakePairAddress);
 
         // Calculate percentual amount of volume
-        uint256 percentualAmount = pancakePairTokenBalance.div(100).mul(
-            percentageVolume
-        );
+        uint256 percentualAmount = (pancakePairTokenBalance / 100) *
+            percentageVolume;
 
         // Do not exceed swap or liquify amount from fee entry
         if (percentualAmount >= swapOrLiquifyAmount) {

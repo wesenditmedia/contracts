@@ -31,7 +31,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         uint256 expiresAt
     ) external override onlyRole(ADMIN) returns (uint256 index) {
         require(
-            MAX_FEE_AMOUNT >= _Fees.length,
+            MAX_FEE_AMOUNT >= feeEntries.length,
             "DynamicFeeManager: Amount of max. fees reached"
         );
         require(
@@ -63,7 +63,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             expiresAt
         );
 
-        _Fees.push(feeEntry);
+        feeEntries.push(feeEntry);
 
         emit FeeAdded(
             id,
@@ -79,19 +79,19 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         );
 
         // Return entry index
-        return _Fees.length - 1;
+        return feeEntries.length - 1;
     }
 
     function removeFee(uint256 index) external override onlyRole(ADMIN) {
-        require(index < _Fees.length, "DynamicFeeManager: array out of bounds");
+        require(index < feeEntries.length, "DynamicFeeManager: array out of bounds");
 
         // Reset current amount for liquify or swap
-        bytes32 id = _Fees[index].id;
-        _Amounts[id] = 0;
+        bytes32 id = feeEntries[index].id;
+        feeEntryAmounts[id] = 0;
 
         // Remove fee entry from array
-        _Fees[index] = _Fees[_Fees.length - 1];
-        _Fees.pop();
+        feeEntries[index] = feeEntries[feeEntries.length - 1];
+        feeEntries.pop();
 
         emit FeeRemoved(id, index);
     }
@@ -122,9 +122,9 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             hasRole(BYPASS_SWAP_AND_LIQUIFY, from);
 
         // Loop over all fee entries and calculate plus reflect fee
-        uint256 feeAmount = _Fees.length;
+        uint256 feeAmount = feeEntries.length;
         for (uint256 i = 0; i < feeAmount; i++) {
-            FeeEntry memory fee = _Fees[i];
+            FeeEntry memory fee = feeEntries[i];
 
             if (_isFeeEntryValid(fee) && _isFeeEntryMatching(fee, from, to)) {
                 uint256 tFee = _calculateFee(amount, fee.percentage);
@@ -172,7 +172,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
                 ),
                 "DynamicFeeManager: Fee transfer to manager failed"
             );
-            _Amounts[fee.id] = _Amounts[fee.id] + tFee;
+            feeEntryAmounts[fee.id] = feeEntryAmounts[fee.id] + tFee;
         } else {
             require(
                 IWeSenditToken(address(token())).transferFromNoFees(
@@ -186,7 +186,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
 
         // Check if swap / liquify amount was reached
         if (
-            !bypassSwapAndLiquify && _Amounts[fee.id] >= fee.swapOrLiquifyAmount
+            !bypassSwapAndLiquify && feeEntryAmounts[fee.id] >= fee.swapOrLiquifyAmount
         ) {
             // Capture WSI balance before swap / liquify
             uint256 wsiBalanceBefore = token().balanceOf(address(this));
@@ -219,7 +219,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             // Calculate real amount of tokens used for swap / liquify
             uint256 wsiSwapped = wsiBalanceBefore - wsiBalanceAfter;
 
-            _Amounts[fee.id] = _Amounts[fee.id] - wsiSwapped;
+            feeEntryAmounts[fee.id] = feeEntryAmounts[fee.id] - wsiSwapped;
         }
 
         // Check if callback should be called on destination

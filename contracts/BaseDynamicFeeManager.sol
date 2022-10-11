@@ -63,10 +63,10 @@ abstract contract BaseDynamicFeeManager is
     uint256 internal constant MAX_FEE_AMOUNT = 30;
 
     // List of all currently added fees
-    FeeEntry[] internal _Fees;
+    FeeEntry[] internal feeEntries;
 
     // Mapping id to current liquify or swap amounts
-    mapping(bytes32 => uint256) internal _Amounts;
+    mapping(bytes32 => uint256) internal feeEntryAmounts;
 
     // Fees enabled state
     bool private _feesEnabled = false;
@@ -121,7 +121,7 @@ abstract contract BaseDynamicFeeManager is
         override
         returns (FeeEntry memory fee)
     {
-        return _Fees[index];
+        return feeEntries[index];
     }
 
     function getFeeAmount(bytes32 id)
@@ -130,7 +130,7 @@ abstract contract BaseDynamicFeeManager is
         override
         returns (uint256 amount)
     {
-        return _Amounts[id];
+        return feeEntryAmounts[id];
     }
 
     function feesEnabled() public view override returns (bool) {

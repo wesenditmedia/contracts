@@ -11,7 +11,7 @@ import "./IPancakeRouter.sol";
 struct FeeEntry {
     // Unique identifier for the fee entry
     // Generated out of (destination, doLiquify, doSwapForBusd, swapOrLiquifyAmount) to
-    // always use the same _Amounts entry.
+    // always use the same feeEntryAmounts entry.
     bytes32 id;
     // Sender address OR wildcard address
     address from;

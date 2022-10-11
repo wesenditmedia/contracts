@@ -1,9 +1,9 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
 import chai from 'chai'
-import { ethers } from 'hardhat'
+import { ethers, network } from 'hardhat'
 import { expect } from 'chai'
-import { DynamicFeeManager, DynamicFeeManager__factory, MockERC20, MockPancakeRouter, MockPancakeRouter__factory, WeSenditToken, MockPancakePair } from "../typechain";
+import { DynamicFeeManager, DynamicFeeManager__factory, MockERC20, MockPancakeRouter, MockPancakeRouter__factory, WeSenditToken, MockPancakePair, MockFeeReceiver__factory } from "../typechain";
 import { parseEther } from "ethers/lib/utils";
 import { MockContract, smock } from '@defi-wonderland/smock';
 import { getFeeEntryArgs } from "./DynamicFeeManager";
@@ -434,6 +434,38 @@ describe("WeSendit", function () {
         await expect(
           contract.connect(alice).emergencyWithdraw(parseEther('100'))
         ).to.be.reverted
+      })
+
+      it('should fail on withdraw if caller is non-payable', async function () {
+        // Arrange
+        // Use MockFeeReceiver here, because it's non-payable
+        const MockFeeReceiver = await smock.mock<MockFeeReceiver__factory>('MockFeeReceiver')
+        const mockFeeReceiver = await MockFeeReceiver.deploy()
+
+        await contract.grantRole(ADMIN_ROLE, mockFeeReceiver.address)
+
+        await ethers.provider.send('hardhat_setBalance', [
+          mockFeeReceiver.address,
+          '0x56BC75E2D63100000'
+        ])
+
+        await network.provider.request({
+          method: 'hardhat_impersonateAccount',
+          params: [mockFeeReceiver.address]
+        })
+
+        const signer = await ethers.getSigner(mockFeeReceiver.address);
+
+        // Act & Assert
+        await expect(
+          contract.connect(signer).emergencyWithdraw(parseEther('100'))
+        ).to.be.revertedWith('WeSendit: Failed to send BNB')
+
+        // Reset
+        await network.provider.request({
+          method: 'hardhat_stopImpersonatingAccount',
+          params: [mockFeeReceiver.address]
+        })
       })
     })
 

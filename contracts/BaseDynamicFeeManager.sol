@@ -52,15 +52,15 @@ abstract contract BaseDynamicFeeManager is
     // Transaction fee limit on creation
     uint256 public constant INITIAL_TRANSACTION_FEE_LIMIT = 25_000; // 25%
 
+    // Max. amount for fee entries
+    uint256 public constant MAX_FEE_AMOUNT = 30;
+
     // Fee divider
     uint256 internal constant FEE_DIVIDER = 100_000;
 
     // Wildcard address for fees
     address internal constant WHITELIST_ADDRESS =
         0x000000000000000000000000000000000000dEaD;
-
-    // Max. amount for fee entries
-    uint256 internal constant MAX_FEE_AMOUNT = 30;
 
     // List of all currently added fees
     FeeEntry[] internal feeEntries;
@@ -240,7 +240,7 @@ abstract contract BaseDynamicFeeManager is
     {
         require(
             value <= 100,
-            "DynamicFeeManager: Invalid swap percentage volume value"
+            "DynamicFeeManager: Invalid percentage volume swap value"
         );
 
         _percentageVolumeSwap = value;
@@ -264,7 +264,7 @@ abstract contract BaseDynamicFeeManager is
     {
         require(
             value <= 100,
-            "DynamicFeeManager: Invalid liquify percentage volume value"
+            "DynamicFeeManager: Invalid percentage volume liquify value"
         );
 
         _percentageVolumeLiquify = value;
@@ -370,7 +370,7 @@ abstract contract BaseDynamicFeeManager is
 
         require(
             token().approve(address(pancakeRouter()), amount),
-            "DynamicFeeManager: Failed to approve token for swap BNB"
+            "DynamicFeeManager: Failed to approve token for swap to BNB"
         );
 
         // make the swap

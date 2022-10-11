@@ -31,7 +31,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         uint256 expiresAt
     ) external override onlyRole(ADMIN) returns (uint256 index) {
         require(
-            MAX_FEE_AMOUNT >= feeEntries.length,
+            feeEntries.length < MAX_FEE_AMOUNT,
             "DynamicFeeManager: Amount of max. fees reached"
         );
         require(
@@ -83,7 +83,10 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
     }
 
     function removeFee(uint256 index) external override onlyRole(ADMIN) {
-        require(index < feeEntries.length, "DynamicFeeManager: array out of bounds");
+        require(
+            index < feeEntries.length,
+            "DynamicFeeManager: array out of bounds"
+        );
 
         // Reset current amount for liquify or swap
         bytes32 id = feeEntries[index].id;
@@ -142,7 +145,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         );
 
         tTotal = amount - tFees;
-        _validateFeeAmount(amount, tTotal, tFees);
+        require(tTotal > 0, "DynamicFeeManager: invalid total amount");
 
         return (tTotal, tFees);
     }
@@ -186,7 +189,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
 
         // Check if swap / liquify amount was reached
         if (
-            !bypassSwapAndLiquify && feeEntryAmounts[fee.id] >= fee.swapOrLiquifyAmount
+            !bypassSwapAndLiquify &&
+            feeEntryAmounts[fee.id] >= fee.swapOrLiquifyAmount
         ) {
             // Capture WSI balance before swap / liquify
             uint256 wsiBalanceBefore = token().balanceOf(address(this));
@@ -289,25 +293,6 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
                 fee.from == WHITELIST_ADDRESS &&
                 !hasRole(EXCLUDE_WILDCARD_FEE, from)) ||
             (fee.to == to && fee.from == from);
-    }
-
-    /**
-     * Validates the new total amount and fee amount
-     *
-     * @param amount uint256 - Original transaction amount
-     * @param tTotal uint256 - Transaction amount after fees
-     * @param tFees uint256 - Fee amount
-     */
-    function _validateFeeAmount(
-        uint256 amount,
-        uint256 tTotal,
-        uint256 tFees
-    ) private pure {
-        require(tTotal > 0, "DynamicFeeManager: invalid total amount");
-        require(
-            tTotal + tFees == amount,
-            "DynamicFeeManager: invalid transfer amount"
-        );
     }
 
     /**

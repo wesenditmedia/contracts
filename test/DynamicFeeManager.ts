@@ -1,7 +1,7 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
 import chai from 'chai'
-import { ethers } from 'hardhat'
+import { ethers, network } from 'hardhat'
 import { expect } from 'chai'
 import { DynamicFeeManager, MockERC20, MockFeeReceiver__factory, MockPancakePair, MockPancakePair__factory, MockPancakeRouter, MockPancakeRouter__factory, WeSenditToken, WeSenditToken__factory } from "../typechain";
 import { MockContract, smock } from '@defi-wonderland/smock';
@@ -150,13 +150,76 @@ describe("Dynamic Fee Manager", function () {
     })
 
     it('should decrease fee limits', async function () {
+      // Assert
+      expect(await contract.feeDecreased()).to.equal(false)
       expect(await contract.feePercentageLimit()).to.equal(INITIAL_FEE_PERCENTAGE_LIMIT)
       expect(await contract.transactionFeeLimit()).to.equal(INITIAL_TRANSACTION_FEE_LIMIT)
 
+      // Act
       await contract.decreaseFeeLimits()
 
+      // Assert
+      expect(await contract.feeDecreased()).to.equal(true)
       expect(await contract.feePercentageLimit()).to.equal(FEE_PERCENTAGE_LIMIT)
       expect(await contract.transactionFeeLimit()).to.equal(TRANSACTION_FEE_LIMIT)
+    })
+
+    it('should not decrease fee twice', async function () {
+      // Arrange
+      await contract.decreaseFeeLimits()
+
+      // Act & Assert
+      await expect(
+        contract.decreaseFeeLimits()
+      ).to.be.revertedWith('DynamicFeeManager: Fee limits are already decreased')
+    })
+
+    it('should not set Pancakeswap router to zero address', async function () {
+      await expect(
+        contract.setPancakeRouter(ethers.constants.AddressZero)
+      ).to.be.revertedWith('DynamicFeeManager: Cannot set Pancake Router to zero address')
+    })
+
+    it('should not set BUSD to zero address', async function () {
+      await expect(
+        contract.setBusdAddress(ethers.constants.AddressZero)
+      ).to.be.revertedWith('DynamicFeeManager: Cannot set BUSD to zero address')
+    })
+
+    it('should not set Pancakeswap BUSD pair to zero address', async function () {
+      await expect(
+        contract.setPancakePairBusdAddress(ethers.constants.AddressZero)
+      ).to.be.revertedWith('DynamicFeeManager: Cannot set BUSD pair to zero address')
+    })
+
+    it('should not set Pancakeswap BNB pair to zero address', async function () {
+      await expect(
+        contract.setPancakePairBnbAddress(ethers.constants.AddressZero)
+      ).to.be.revertedWith('DynamicFeeManager: Cannot set BNB pair to zero address')
+    })
+
+    it('should set percentage volume swap to 100', async function () {
+      await expect(
+        contract.setPercentageVolumeSwap(100)
+      ).to.not.be.reverted
+    })
+
+    it('should set percentage volume liquify to 100', async function () {
+      await expect(
+        contract.setPercentageVolumeLiquify(100)
+      ).to.not.be.reverted
+    })
+
+    it('should not set percentage volume swap to greater than 100', async function () {
+      await expect(
+        contract.setPercentageVolumeSwap(101)
+      ).to.be.revertedWith('DynamicFeeManager: Invalid percentage volume swap value')
+    })
+
+    it('should not set percentage volume liquify to greater than 100', async function () {
+      await expect(
+        contract.setPercentageVolumeLiquify(101)
+      ).to.be.revertedWith('DynamicFeeManager: Invalid percentage volume liquify value')
     })
   });
 
@@ -247,6 +310,20 @@ describe("Dynamic Fee Manager", function () {
         await expect(
           contract.connect(alice).addFee(...getFeeEntryArgs())
         ).to.be.reverted
+      })
+
+      it('should fail to add more than MAX_FEE_AMOUNT fee entries', async function () {
+        // Arrange
+        const MAX_FEE_AMOUNT = await contract.MAX_FEE_AMOUNT()
+
+        for (let i = 0; i < MAX_FEE_AMOUNT.toNumber(); i++) {
+          await contract.addFee(...getFeeEntryArgs({ percentage: 1, destination: alice.address }))
+        }
+
+        // Act & Assert
+        await expect(
+          contract.addFee(...getFeeEntryArgs({ percentage: 1, destination: alice.address }))
+        ).to.be.revertedWith('DynamicFeeManager: Amount of max. fees reached')
       })
     })
 
@@ -1040,6 +1117,43 @@ describe("Dynamic Fee Manager", function () {
           parseEther('100')
         )).to.be.reverted
       })
+
+      it('should fail to reflect fee if caller has no CALL_REFLECT_FEES role', async function () {
+        // Arrange
+        await contract.revokeRole(CALL_REFLECT_FEES_ROLE, alice.address)
+
+        // Act & Assert
+        await expect(contract.connect(alice).reflectFees(
+          alice.address,
+          bob.address,
+          parseEther('100')
+        )).to.be.reverted
+      })
+
+      it('should fail to reflect fee if token transfer fails', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 }))
+        mockWsi.transferFromNoFees.returns(false)
+
+        // Act & Assert
+        await expect(contract.connect(alice).reflectFees(
+          alice.address,
+          bob.address,
+          parseEther('100')
+        )).to.be.revertedWith('DynamicFeeManager: Fee transfer to destination failed')
+      })
+
+      it('should fail to reflect fee if amount is zero', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 }))
+
+        // Act & Assert
+        await expect(contract.connect(alice).reflectFees(
+          alice.address,
+          bob.address,
+          0
+        )).to.be.revertedWith('DynamicFeeManager: invalid total amount')
+      })
     })
 
     describe('Fees with callback', function () {
@@ -1616,10 +1730,10 @@ describe("Dynamic Fee Manager", function () {
   describe('Emergency Withdraw', function () {
     describe('BNB', function () {
       beforeEach(async function () {
-        await ethers.provider.send("hardhat_setBalance", [
+        await ethers.provider.send('hardhat_setBalance', [
           contract.address,
-          "0x56BC75E2D63100000",
-        ]);
+          '0x56BC75E2D63100000'
+        ])
       })
 
       it('should withdraw all BNB', async function () {
@@ -1658,6 +1772,35 @@ describe("Dynamic Fee Manager", function () {
         await expect(
           contract.connect(alice).emergencyWithdraw(parseEther('100'))
         ).to.be.reverted
+      })
+
+      it('should fail on withdraw if caller is non-payable', async function () {
+        // Arrange
+        // Use MockFeeReceiver here, because it's non-payable
+        await contract.grantRole(ADMIN_ROLE, mockFeeReceiver.address)
+
+        await ethers.provider.send('hardhat_setBalance', [
+          mockFeeReceiver.address,
+          '0x56BC75E2D63100000'
+        ])
+
+        await network.provider.request({
+          method: 'hardhat_impersonateAccount',
+          params: [mockFeeReceiver.address]
+        })
+
+        const signer = await ethers.getSigner(mockFeeReceiver.address);
+
+        // Act & Assert
+        await expect(
+          contract.connect(signer).emergencyWithdraw(parseEther('100'))
+        ).to.be.revertedWith('WeSendit: Failed to send BNB')
+
+        // Reset
+        await network.provider.request({
+          method: 'hardhat_stopImpersonatingAccount',
+          params: [mockFeeReceiver.address]
+        })
       })
     })
 
@@ -2371,6 +2514,57 @@ describe("Dynamic Fee Manager", function () {
         expect(await mockWsi.balanceOf(bob.address)).to.equal(parseEther('95'))
         expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('105')) // 100 from arrange
       })
+
+      it('should fail to add liquidity percentual based on volume if token approve for swap fails', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doLiquify: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
+        await contract.setPercentageVolumeSwap(2) // 2% of volume
+        await contract.setPancakePairBnbAddress(mockPancakePair.address)
+        mockWsi.approve.returns(false)
+
+        // Assigning 100 WSI to Pancakepair as volume.
+        // So we'd swap a maximum of two percent of the volume, which equals 2 WSI
+        await mockWsi.transfer(mockPancakePair.address, parseEther('100'))
+
+        // Act
+        await expect(
+          mockWsi.connect(alice).transfer(bob.address, parseEther('100'))
+        ).to.be.revertedWith('DynamicFeeManager: Failed to approve token for swap to BNB')
+      })
+
+      it('should fail to add liquidity percentual based on volume if token approve for adding liquidity fails', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doLiquify: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
+        await contract.setPercentageVolumeSwap(2) // 2% of volume
+        await contract.setPancakePairBnbAddress(mockPancakePair.address)
+        mockWsi.approve.returnsAtCall(1, false)
+
+        // Assigning 100 WSI to Pancakepair as volume.
+        // So we'd swap a maximum of two percent of the volume, which equals 2 WSI
+        await mockWsi.transfer(mockPancakePair.address, parseEther('100'))
+
+        // Act
+        await expect(
+          mockWsi.connect(alice).transfer(bob.address, parseEther('100'))
+        ).to.be.revertedWith('DynamicFeeManager: Failed to approve token for adding liquidity')
+      })
+
+      it('should fail to add liquidity percentual based on volume if token transfer fails', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doLiquify: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
+        await contract.setPercentageVolumeSwap(2) // 2% of volume
+        await contract.setPancakePairBnbAddress(mockPancakePair.address)
+        mockWsi.transferFromNoFees.returns(false)
+
+        // Assigning 100 WSI to Pancakepair as volume.
+        // So we'd swap a maximum of two percent of the volume, which equals 2 WSI
+        await mockWsi.transfer(mockPancakePair.address, parseEther('100'))
+
+        // Act
+        await expect(
+          mockWsi.connect(alice).transfer(bob.address, parseEther('100'))
+        ).to.be.revertedWith('DynamicFeeManager: Fee transfer to manager failed')
+      })
     })
 
     describe('Swap to BUSD', function () {
@@ -2630,6 +2824,40 @@ describe("Dynamic Fee Manager", function () {
         expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('0'))
         expect(await mockWsi.balanceOf(bob.address)).to.equal(parseEther('95'))
         expect(await mockWsi.balanceOf(mockPancakePair.address)).to.equal(parseEther('105')) // 100 from arrange
+      })
+
+      it('should fail to swap percentual based on volume if token approve fails', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
+        await contract.setPercentageVolumeSwap(2) // 2% of volume
+        await contract.setPancakePairBusdAddress(mockPancakePair.address)
+        mockWsi.approve.returns(false)
+
+        // Assigning 100 WSI to Pancakepair as volume.
+        // So we'd swap a maximum of two percent of the volume, which equals 2 WSI
+        await mockWsi.transfer(mockPancakePair.address, parseEther('100'))
+
+        // Act
+        await expect(
+          mockWsi.connect(alice).transfer(bob.address, parseEther('100'))
+        ).to.be.revertedWith('DynamicFeeManager: Failed to approve token for swap to BUSD')
+      })
+
+      it('should fail to swap percentual based on volume if token transfer fails', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ percentage: 5000, destination: addrs[0].address, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
+        await contract.setPercentageVolumeSwap(2) // 2% of volume
+        await contract.setPancakePairBusdAddress(mockPancakePair.address)
+        mockWsi.transferFromNoFees.returns(false)
+
+        // Assigning 100 WSI to Pancakepair as volume.
+        // So we'd swap a maximum of two percent of the volume, which equals 2 WSI
+        await mockWsi.transfer(mockPancakePair.address, parseEther('100'))
+
+        // Act
+        await expect(
+          mockWsi.connect(alice).transfer(bob.address, parseEther('100'))
+        ).to.be.revertedWith('DynamicFeeManager: Fee transfer to manager failed')
       })
     })
   })

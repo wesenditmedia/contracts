@@ -126,23 +126,25 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
 
         // Loop over all fee entries and calculate plus reflect fee
         uint256 feeAmount = feeEntries.length;
+
+        // Keep track of fees applied, to prevent adding more fees than limit
+        uint256 totalFeePercentage;
+        uint256 txFeeLimit = transactionFeeLimit();
+
         for (uint256 i = 0; i < feeAmount; i++) {
             FeeEntry memory fee = feeEntries[i];
 
             if (_isFeeEntryValid(fee) && _isFeeEntryMatching(fee, from, to)) {
                 uint256 tFee = _calculateFee(amount, fee.percentage);
+                uint256 tempPercentage = totalFeePercentage + fee.percentage;
 
-                if (tFee > 0) {
+                if (tFee > 0 && tempPercentage <= txFeeLimit) {
                     tFees = tFees + tFee;
+                    totalFeePercentage = tempPercentage;
                     _reflectFee(from, to, tFee, fee, bypassSwapAndLiquify);
                 }
             }
         }
-
-        require(
-            tFees <= (amount * transactionFeeLimit()) / FEE_DIVIDER,
-            "DynamicFeeManager: Transaction fees exceeding limit"
-        );
 
         tTotal = amount - tFees;
         require(tTotal > 0, "DynamicFeeManager: invalid total amount");
@@ -192,22 +194,21 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             !bypassSwapAndLiquify &&
             feeEntryAmounts[fee.id] >= fee.swapOrLiquifyAmount
         ) {
-            // Capture WSI balance before swap / liquify
-            uint256 wsiBalanceBefore = token().balanceOf(address(this));
+            uint256 tokenSwapped;
 
             if (fee.doSwapForBusd) {
-                // Swap token for BUSD
-                _swapTokensForBusd(
-                    _getSwapOrLiquifyAmount(
-                        fee.swapOrLiquifyAmount,
-                        percentageVolumeSwap(),
-                        pancakePairBusdAddress()
-                    ),
-                    fee.destination
+                // Calculate amount of token we're going to swap
+                tokenSwapped = _getSwapOrLiquifyAmount(
+                    fee.swapOrLiquifyAmount,
+                    percentageVolumeSwap(),
+                    pancakePairBusdAddress()
                 );
+
+                // Swap token for BUSD
+                _swapTokensForBusd(tokenSwapped, fee.destination);
             } else if (fee.doLiquify) {
                 // Swap (BNB) and liquify token
-                _swapAndLiquify(
+                tokenSwapped = _swapAndLiquify(
                     _getSwapOrLiquifyAmount(
                         fee.swapOrLiquifyAmount,
                         percentageVolumeLiquify(),
@@ -217,13 +218,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
                 );
             }
 
-            // Capture WSI balance after swap / liquify
-            uint256 wsiBalanceAfter = token().balanceOf(address(this));
-
-            // Calculate real amount of tokens used for swap / liquify
-            uint256 wsiSwapped = wsiBalanceBefore - wsiBalanceAfter;
-
-            feeEntryAmounts[fee.id] = feeEntryAmounts[fee.id] - wsiSwapped;
+            // Subtract amount of swapped token from fee entry amount
+            feeEntryAmounts[fee.id] = feeEntryAmounts[fee.id] - tokenSwapped;
         }
 
         // Check if callback should be called on destination

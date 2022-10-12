@@ -37,6 +37,8 @@ contract MockPancakeRouter {
         )
     {
         IERC20(token).transferFrom(msg.sender, _pair, amountTokenDesired);
+
+        return (amountTokenDesired, msg.value, 0);
     }
 
     function swapExactTokensForETHSupportingFeeOnTransferTokens(

@@ -329,10 +329,13 @@ abstract contract BaseDynamicFeeManager is
      *
      * @param amount uint256 - Amount to use
      * @param destination address - Destination address for the LP tokens
+     *
+     * @return tokenSwapped uint256 - Amount of token which have been swapped
      */
     function _swapAndLiquify(uint256 amount, address destination)
         internal
         nonReentrant
+        returns (uint256 tokenSwapped)
     {
         // split the contract balance into halves
         uint256 half = amount / 2;
@@ -351,9 +354,15 @@ abstract contract BaseDynamicFeeManager is
         uint256 newBalance = address(this).balance - initialBalance;
 
         // add liquidity to uniswap
-        _addLiquidity(otherHalf, newBalance, destination);
+        uint256 tokenLiquified = _addLiquidity(
+            otherHalf,
+            newBalance,
+            destination
+        );
 
         emit SwapAndLiquify(half, newBalance, otherHalf);
+
+        return half + tokenLiquified;
     }
 
     /**
@@ -433,12 +442,14 @@ abstract contract BaseDynamicFeeManager is
      * @param tokenAmount uint256 - Amount of token to use
      * @param bnbAmount uint256 - Amount of BNB to use
      * @param destination address - Destination address for the LP tokens
+     *
+     * @return tokenSwapped uint256 - Amount of token which have been swapped
      */
     function _addLiquidity(
         uint256 tokenAmount,
         uint256 bnbAmount,
         address destination
-    ) internal {
+    ) internal returns (uint256 tokenSwapped) {
         // approve token transfer to cover all possible scenarios
         require(
             token().approve(address(pancakeRouter()), tokenAmount),
@@ -446,7 +457,7 @@ abstract contract BaseDynamicFeeManager is
         );
 
         // add the liquidity
-        pancakeRouter().addLiquidityETH{value: bnbAmount}(
+        (tokenSwapped, , ) = pancakeRouter().addLiquidityETH{value: bnbAmount}(
             address(token()),
             tokenAmount,
             0, // slippage is unavoidable
@@ -454,6 +465,8 @@ abstract contract BaseDynamicFeeManager is
             destination,
             block.timestamp
         );
+
+        return tokenSwapped;
     }
 
     /**

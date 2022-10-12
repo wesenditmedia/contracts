@@ -832,39 +832,92 @@ describe("Dynamic Fee Manager", function () {
 
       // Assert
       expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(
-        parseEther('100').div(FEE_DIVIDER).mul(TRANSACTION_FEE_LIMIT)
+        parseEther('100').mul(TRANSACTION_FEE_LIMIT).div(FEE_DIVIDER)
       )
     })
 
-    it('should fail to calculate fee if overall fee is higher than transaction fee limit', async function () {
+    it('should calculate fee partially if overall fee is higher than transaction fee limit (1)', async function () {
       // Arrange
       const percentage = TRANSACTION_FEE_LIMIT.div(2)
+      const amount = parseEther('100').mul(percentage).div(FEE_DIVIDER)
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: percentage.add(1) }))
 
-      // Act & Assert
-      await expect(contract.reflectFees(
+      // Act
+      await contract.reflectFees(
         alice.address,
         bob.address,
         parseEther('100')
-      )).to.be.revertedWith('DynamicFeeManager: Transaction fees exceeding limit')
+      )
+
+      // Assert
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(
+        amount
+      )
     })
 
-    it('should fail to calculate fee if overall fee is over 100%', async function () {
+    it('should calculate fee partially if overall fee is higher than transaction fee limit (2)', async function () {
       // Arrange
-      const percentage = TRANSACTION_FEE_LIMIT
+      const percentage = TRANSACTION_FEE_LIMIT.div(4)
+      const amount = parseEther('100').mul(percentage).div(FEE_DIVIDER)
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
       await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
-      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: percentage.add(1) }))
 
-      // Act & Assert
-      await expect(contract.reflectFees(
+      // Act
+      await contract.reflectFees(
         alice.address,
         bob.address,
         parseEther('100')
-      )).to.be.reverted
+      )
+
+      // Assert
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(
+        amount.mul(3)
+      )
+    })
+
+    it('should calculate fee partially if overall fee is higher than transaction fee limit (3)', async function () {
+      // Arrange
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+
+      // Act
+      await contract.reflectFees(
+        alice.address,
+        bob.address,
+        parseEther('100')
+      )
+
+      // Assert
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(
+        parseEther('10')
+      )
+    })
+
+    it('should calculate fee partially if overall fee is higher than transaction fee limit (4)', async function () {
+      // Arrange
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2000 })) // 2%
+      await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+
+      // Act
+      await contract.reflectFees(
+        alice.address,
+        bob.address,
+        parseEther('100')
+      )
+
+      // Assert
+      expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(
+        parseEther('9.5')
+      )
     })
 
     it('should calculate correct fee for single time relevant entry', async function () {
@@ -1152,35 +1205,88 @@ describe("Dynamic Fee Manager", function () {
         expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
       })
 
-      it('should fail to reflect fee if overall fee higher than transaction fee limit', async function () {
+      it('should reflect fee partially if overall fee is higher than transaction fee limit (1)', async function () {
         // Arrange
-        const percentage = TRANSACTION_FEE_LIMIT
+        const percentage = TRANSACTION_FEE_LIMIT.div(2)
+        const amount = parseEther('100').mul(percentage).div(FEE_DIVIDER)
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
-        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: percentage.add(1) }))
 
-        // Act & Assert
-        await expect(contract.connect(alice).reflectFees(
+        // Act
+        await contract.connect(alice).reflectFees(
           alice.address,
           bob.address,
           parseEther('100')
-        )).to.be.revertedWith('DynamicFeeManager: Transaction fees exceeding limit')
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(
+          amount
+        )
       })
 
-      it('should fail to reflect fee if overall fee is over 100%', async function () {
+      it('should reflect fee partially if overall fee is higher than transaction fee limit (2)', async function () {
         // Arrange
-        const percentage = TRANSACTION_FEE_LIMIT
+        const percentage = TRANSACTION_FEE_LIMIT.div(4)
+        const amount = parseEther('100').mul(percentage).div(FEE_DIVIDER)
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
-        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage }))
-        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 1000 })) // 1%
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: percentage.add(1) }))
 
-        // Act & Assert
-        await expect(contract.connect(alice).reflectFees(
+        // Act
+        await contract.connect(alice).reflectFees(
           alice.address,
           bob.address,
           parseEther('100')
-        )).to.be.reverted
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(
+          amount.mul(3)
+        )
+      })
+
+      it('should reflect fee partially if overall fee is higher than transaction fee limit (3)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+
+        // Act
+        await contract.connect(alice).reflectFees(
+          alice.address,
+          bob.address,
+          parseEther('100')
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(
+          parseEther('10')
+        )
+      })
+
+      it('should reflect fee partially if overall fee is higher than transaction fee limit (4)', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2000 })) // 2%
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 2500 })) // 2.5%
+
+        // Act
+        await contract.connect(alice).reflectFees(
+          alice.address,
+          bob.address,
+          parseEther('100')
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(
+          parseEther('9.5')
+        )
       })
 
       it('should fail to reflect fee if caller has no CALL_REFLECT_FEES role', async function () {

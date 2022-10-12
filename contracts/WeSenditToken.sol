@@ -19,6 +19,15 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
         _mint(addressTotalSupply, TOTAL_SUPPLY);
     }
 
+    /**
+     * Transfer token from without fee reflection
+     *
+     * @param from address - Address to transfer token from
+     * @param to address - Address to transfer token to
+     * @param amount uint256 - Amount of token to transfer
+     *
+     * @return bool - Indicator if transfer was successful
+     */
     function transferFromNoFees(
         address from,
         address to,
@@ -51,7 +60,7 @@ contract WeSenditToken is BaseWeSenditToken, ERC20Capped, ERC20Burnable {
     }
 
     /**
-     * Transfer token with fee reflection
+     * Transfer token from with fee reflection
      *
      * @inheritdoc ERC20
      */

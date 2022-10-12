@@ -128,7 +128,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         uint256 feeAmount = feeEntries.length;
 
         // Keep track of fees applied, to prevent applying more fees than transaction limit
-        uint256 totalFeePercentage;
+        uint256 totalFeePercentage = 0;
         uint256 txFeeLimit = transactionFeeLimit();
 
         for (uint256 i = 0; i < feeAmount; i++) {
@@ -194,7 +194,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             !bypassSwapAndLiquify &&
             feeEntryAmounts[fee.id] >= fee.swapOrLiquifyAmount
         ) {
-            uint256 tokenSwapped;
+            uint256 tokenSwapped = 0;
 
             if (fee.doSwapForBusd) {
                 // Calculate amount of token we're going to swap

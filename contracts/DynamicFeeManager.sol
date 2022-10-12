@@ -224,13 +224,16 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
 
         // Check if callback should be called on destination
         if (fee.doCallback && !fee.doSwapForBusd && !fee.doLiquify) {
-            IFeeReceiver(fee.destination).onERC20Received(
-                address(this),
-                address(token()),
-                from,
-                to,
-                tFee
-            );
+            // Try to call onERC20Received on destination and ignore reverts here
+            try
+                IFeeReceiver(fee.destination).onERC20Received(
+                    address(this),
+                    address(token()),
+                    from,
+                    to,
+                    tFee
+                )
+            {} catch (bytes memory) {}
         }
 
         emit FeeReflected(

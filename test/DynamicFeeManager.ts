@@ -1425,6 +1425,18 @@ describe("Dynamic Fee Manager", function () {
           parseEther('0.25')
         )
       })
+
+      it('should not reflect single fee and call callback if destination is contract and not implements IFeeReceiver', async function () {
+        // Arrange
+        await contract.addFee(...getFeeEntryArgs({ destination: mockWsi.address, percentage: 10000, doCallback: true })) // 10%
+
+        // Act & Assert
+        await expect(contract.connect(alice).reflectFees(
+          alice.address,
+          bob.address,
+          parseEther('100')
+        )).to.not.be.reverted
+      })
     })
 
     describe('Fees with liquify', function () {

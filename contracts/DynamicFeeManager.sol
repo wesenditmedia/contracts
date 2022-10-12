@@ -127,7 +127,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         // Loop over all fee entries and calculate plus reflect fee
         uint256 feeAmount = feeEntries.length;
 
-        // Keep track of fees applied, to prevent adding more fees than limit
+        // Keep track of fees applied, to prevent applying more fees than transaction limit
         uint256 totalFeePercentage;
         uint256 txFeeLimit = transactionFeeLimit();
 

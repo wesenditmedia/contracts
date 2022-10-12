@@ -48,6 +48,7 @@ interface IWeSenditToken {
 
     /**
      * Sets the dynamic fee manager
+     * Can be set to zero address to disable fee reflection.
      *
      * @param value address - New dynamic fee manager address
      */

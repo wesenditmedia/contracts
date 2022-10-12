@@ -13,7 +13,10 @@ abstract contract BaseWeSenditToken is
     AccessControlEnumerable,
     Ownable
 {
+    // Initial token supply
     uint256 public constant INITIAL_SUPPLY = 37_500_000 ether;
+
+    // Total token supply
     uint256 public constant TOTAL_SUPPLY = 1_500_000_000 ether;
 
     // Role allowed to do admin operations like adding to fee whitelist, withdraw, etc.
@@ -22,7 +25,10 @@ abstract contract BaseWeSenditToken is
     // Role allowed to bypass pause
     bytes32 public constant BYPASS_PAUSE = keccak256("BYPASS_PAUSE");
 
+    // Indicator, if transactions are paused
     bool private _paused = true;
+
+    // Dynamic Fee Manager instance
     IDynamicFeeManager private _dynamicFeeManager;
 
     constructor() {

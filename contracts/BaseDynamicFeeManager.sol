@@ -348,7 +348,7 @@ abstract contract BaseDynamicFeeManager is
         uint256 initialBalance = address(this).balance;
 
         // swap tokens for BNB
-        _swapTokensForBnb(half, address(this)); // <- this breaks the BNB -> WSI swap when swap+liquify is triggered
+        _swapTokensForBnb(half, address(this));
 
         // how much BNB did we just swap into?
         uint256 newBalance = address(this).balance - initialBalance;

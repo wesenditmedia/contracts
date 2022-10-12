@@ -13,7 +13,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@nomicfoundation/solidity-analyzer-linux-x64-gnu": "^0.1.0",
     "@openzeppelin/contracts": "^4.5.0",
     "@types/lodash": "^4.14.179",
     "@types/moment": "^2.13.0",
@@ -23,6 +22,7 @@
   },
   "devDependencies": {
     "@defi-wonderland/smock": "^2.2.0",
+    "@nomicfoundation/hardhat-chai-matchers": "^1.0.4",
     "@nomiclabs/hardhat-ethers": "^2.0.5",
     "@nomiclabs/hardhat-etherscan": "^3.0.1",
     "@nomiclabs/hardhat-waffle": "^2.0.2",

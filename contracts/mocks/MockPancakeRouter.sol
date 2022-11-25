@@ -9,11 +9,27 @@ contract MockPancakeRouter {
     event MockEvent(uint256 value);
 
     address private immutable _weth;
-    address private immutable _pair;
 
-    constructor(address weth, address pair) {
+    // See https://github.com/pancakeswap/pancake-smart-contracts/blob/master/projects/exchange-protocol/contracts/PancakeFactory.sol#L13
+    mapping(address => mapping(address => address)) public getPair;
+
+    constructor(
+        address weth,
+        address busd,
+        address wsi,
+        address wethPair,
+        address busdPair
+    ) {
+        // BNB
         _weth = weth;
-        _pair = pair;
+
+        // BNB <-> WSI
+        getPair[weth][wsi] = wethPair;
+        getPair[wsi][weth] = wethPair;
+
+        // BUSD <-> WSI
+        getPair[busd][wsi] = busdPair;
+        getPair[wsi][busd] = busdPair;
     }
 
     function WETH() public view returns (address) {
@@ -36,7 +52,9 @@ contract MockPancakeRouter {
             uint256 liquidity
         )
     {
-        IERC20(token).transferFrom(msg.sender, _pair, amountTokenDesired);
+        address pair = getPair[_weth][token];
+
+        IERC20(token).transferFrom(msg.sender, pair, amountTokenDesired);
 
         return (amountTokenDesired, msg.value, 0);
     }
@@ -48,7 +66,13 @@ contract MockPancakeRouter {
         address to,
         uint256 deadline
     ) public {
-        IERC20(path[0]).transferFrom(msg.sender, _pair, amountIn);
+        require(amountIn > 0, "MockPancakeRouter: Invalid input amount");
+
+        address pair = getPair[path[0]][path[1]];
+
+        IERC20(path[0]).transferFrom(msg.sender, pair, amountIn);
+        // MockPancakePair(_pair).swap(path[1], address(0), amountIn);
+        payable(to).transfer(amountIn);
     }
 
     function swapExactETHForTokensSupportingFeeOnTransferTokens(
@@ -57,7 +81,10 @@ contract MockPancakeRouter {
         address to,
         uint256 deadline
     ) public payable {
-        MockPancakePair(_pair).swap(path[1], msg.sender, amountOutMin);
+        address pair = getPair[path[0]][path[1]];
+
+        IERC20(path[0]).transfer(pair, msg.value);
+        MockPancakePair(pair).swap(path[1], to, amountOutMin);
     }
 
     function swapExactTokensForTokensSupportingFeeOnTransferTokens(
@@ -67,6 +94,13 @@ contract MockPancakeRouter {
         address to,
         uint256 deadline
     ) public {
-        IERC20(path[0]).transferFrom(msg.sender, _pair, amountIn);
+        address pair = getPair[path[0]][path[1]];
+
+        IERC20(path[0]).transferFrom(msg.sender, pair, amountIn);
+        MockPancakePair(pair).swap(
+            path[1],
+            to,
+            amountOutMin > 0 ? amountOutMin : amountIn
+        );
     }
 }

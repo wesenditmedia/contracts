@@ -8,6 +8,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract MockERC20 is ERC20, Ownable {
     constructor() ERC20("MockERC20", "MERC20") {
-        _mint(_msgSender(), 100 ether);
+        _mint(_msgSender(), 100_000_000 ether);
     }
 }

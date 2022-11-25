@@ -8,6 +8,7 @@ import { parseEther } from "ethers/lib/utils";
 import { MockContract, smock } from '@defi-wonderland/smock';
 import { getFeeEntryArgs } from "./DynamicFeeManager";
 import moment from 'moment'
+import { setBalance } from "@nomicfoundation/hardhat-network-helpers";
 
 chai.should();
 chai.use(smock.matchers);
@@ -23,7 +24,8 @@ describe("WeSendit", function () {
   let contract: WeSenditToken
   let mockDynamicFeeManager: MockContract<DynamicFeeManager>
   let mockPancakeRouter: MockContract<MockPancakeRouter>
-  let mockPancakePair: MockPancakePair
+  let mockPancakePairBusd: MockPancakePair
+  let mockPancakePairBnb: MockPancakePair
   let mockBnb: MockERC20
   let mockBusd: MockERC20
 
@@ -57,18 +59,27 @@ describe("WeSendit", function () {
     mockBusd = await MockERC20.deploy()
 
     const MockPancakePair = await ethers.getContractFactory("MockPancakePair")
-    mockPancakePair = await MockPancakePair.deploy()
+    mockPancakePairBusd = await MockPancakePair.deploy()
+    mockPancakePairBnb = await MockPancakePair.deploy()
 
     const MockPancakeRouter = await smock.mock<MockPancakeRouter__factory>("MockPancakeRouter")
-    mockPancakeRouter = await MockPancakeRouter.deploy(mockBnb.address, mockPancakePair.address)
+    mockPancakeRouter = await MockPancakeRouter.deploy(
+      mockBnb.address,
+      mockBusd.address,
+      contract.address,
+      mockPancakePairBnb.address,
+      mockPancakePairBusd.address
+    )
 
     BYPASS_SWAP_AND_LIQUIFY_ROLE = await mockDynamicFeeManager.BYPASS_SWAP_AND_LIQUIFY()
     EXCLUDE_WILDCARD_FEE_ROLE = await mockDynamicFeeManager.EXCLUDE_WILDCARD_FEE()
     CALL_REFLECT_FEES_ROLE = await mockDynamicFeeManager.CALL_REFLECT_FEES()
     await mockDynamicFeeManager.setPancakeRouter(mockPancakeRouter.address)
     await mockDynamicFeeManager.setBusdAddress(mockBusd.address)
-    await mockDynamicFeeManager.grantRole(BYPASS_SWAP_AND_LIQUIFY_ROLE, mockPancakePair.address)
-    await mockDynamicFeeManager.grantRole(EXCLUDE_WILDCARD_FEE_ROLE, mockPancakePair.address)
+    await mockDynamicFeeManager.setPancakePairBnbAddress(mockPancakePairBnb.address)
+    await mockDynamicFeeManager.setPancakePairBusdAddress(mockPancakePairBusd.address)
+    await mockDynamicFeeManager.grantRole(EXCLUDE_WILDCARD_FEE_ROLE, mockPancakePairBnb.address)
+    await mockDynamicFeeManager.grantRole(EXCLUDE_WILDCARD_FEE_ROLE, mockPancakePairBusd.address)
     await mockDynamicFeeManager.grantRole(CALL_REFLECT_FEES_ROLE, contract.address)
     await mockDynamicFeeManager.decreaseFeeLimits()
 
@@ -150,7 +161,8 @@ describe("WeSendit", function () {
 
       it('should call dynamic fee manager on DEX buy', async function () {
         // Arrange
-        await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ to: mockPancakePair.address, percentage: 10000, destination: addrs[0].address })) // 10%
+        await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ to: mockPancakePairBnb.address, percentage: 10000, destination: addrs[0].address })) // 10%
+        await setBalance(mockPancakeRouter.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).approve(mockPancakeRouter.address, parseEther('100'))
@@ -164,13 +176,14 @@ describe("WeSendit", function () {
 
         // Assert
         expect(await contract.balanceOf(alice.address)).to.equal(parseEther('0'))
-        expect(await contract.balanceOf(mockPancakePair.address)).to.equal(parseEther('90'))
+        expect(await contract.balanceOf(mockPancakePairBnb.address)).to.equal(parseEther('90'))
       })
 
       it('should call dynamic fee manager on DEX sell', async function () {
         // Arrange
-        await contract.connect(alice).transfer(mockPancakePair.address, parseEther('100'))
-        await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ from: mockPancakePair.address, percentage: 10000, destination: addrs[0].address })) // 10%
+        await mockBnb.transfer(mockPancakeRouter.address, parseEther('100'))
+        await contract.connect(alice).transfer(mockPancakePairBnb.address, parseEther('100'))
+        await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ from: mockPancakePairBnb.address, percentage: 10000, destination: addrs[0].address })) // 10%
 
         // Act
         await mockPancakeRouter.connect(alice).swapExactETHForTokensSupportingFeeOnTransferTokens(
@@ -185,7 +198,7 @@ describe("WeSendit", function () {
 
         // Assert
         expect(await contract.balanceOf(alice.address)).to.equal(parseEther('90'))
-        expect(await contract.balanceOf(mockPancakePair.address)).to.equal(parseEther('0'))
+        expect(await contract.balanceOf(mockPancakePairBnb.address)).to.equal(parseEther('0'))
       })
 
       it('should call dynamic fee manager on normal transfer with add liquidity', async function () {
@@ -194,6 +207,7 @@ describe("WeSendit", function () {
 
         // Arrange
         await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ percentage: 10000, destination: addrs[0].address, doLiquify: true, swapOrLiquifyAmount: parseEther('10') })) // 10%
+        await setBalance(mockPancakeRouter.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).transfer(bob.address, parseEther('100'))
@@ -231,7 +245,7 @@ describe("WeSendit", function () {
         expect(await contract.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
         expect(await contract.balanceOf(alice.address)).to.equal(parseEther('0'))
         expect(await contract.balanceOf(bob.address)).to.equal(parseEther('90'))
-        expect(await contract.balanceOf(mockPancakePair.address)).to.equal(parseEther('10'))
+        expect(await contract.balanceOf(mockPancakePairBnb.address)).to.equal(parseEther('10'))
       })
 
       it('should call dynamic fee manager on normal transfer with swap to BUSD', async function () {
@@ -240,6 +254,7 @@ describe("WeSendit", function () {
 
         // Arrange
         await mockDynamicFeeManager.addFee(...getFeeEntryArgs({ percentage: 10000, destination: addrs[0].address, doSwapForBusd: true, swapOrLiquifyAmount: parseEther('10') })) // 10%
+        await mockBusd.transfer(mockPancakePairBusd.address, parseEther('100'))
 
         // Act
         await contract.connect(alice).transfer(bob.address, parseEther('100'))
@@ -267,7 +282,7 @@ describe("WeSendit", function () {
         expect(await contract.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
         expect(await contract.balanceOf(alice.address)).to.equal(parseEther('0'))
         expect(await contract.balanceOf(bob.address)).to.equal(parseEther('90'))
-        expect(await contract.balanceOf(mockPancakePair.address)).to.equal(parseEther('10'))
+        expect(await contract.balanceOf(mockPancakePairBusd.address)).to.equal(parseEther('10'))
       })
     })
 

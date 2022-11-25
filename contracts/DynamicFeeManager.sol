@@ -159,6 +159,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
      * @param to address - Receiver address
      * @param tFee uint256 - Fee amount
      * @param fee FeeEntry - Fee Entry
+     * @param bypassSwapAndLiquify bool - Indicator, if swap and liquify should be bypassed
      */
     function _reflectFee(
         address from,
@@ -192,13 +193,19 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         // Check if swap / liquify amount was reached
         if (
             !bypassSwapAndLiquify &&
+            feeEntryAmounts[fee.id] >= MIN_SWAP_OR_LIQUIFY_AMOUNT &&
             feeEntryAmounts[fee.id] >= fee.swapOrLiquifyAmount
         ) {
+            // Disable fees, to prevent PancakeSwap pair recursive calls
+            feesEnabled_ = false;
+
+            // Check if swap / liquify amount was reached
             uint256 tokenSwapped = 0;
 
-            if (fee.doSwapForBusd) {
+            if (fee.doSwapForBusd && from != pancakePairBusdAddress()) {
                 // Calculate amount of token we're going to swap
                 tokenSwapped = _getSwapOrLiquifyAmount(
+                    fee.id,
                     fee.swapOrLiquifyAmount,
                     percentageVolumeSwap(),
                     pancakePairBusdAddress()
@@ -206,10 +213,13 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
 
                 // Swap token for BUSD
                 _swapTokensForBusd(tokenSwapped, fee.destination);
-            } else if (fee.doLiquify) {
+            }
+
+            if (fee.doLiquify) {
                 // Swap (BNB) and liquify token
                 tokenSwapped = _swapAndLiquify(
                     _getSwapOrLiquifyAmount(
+                        fee.id,
                         fee.swapOrLiquifyAmount,
                         percentageVolumeLiquify(),
                         pancakePairBnbAddress()
@@ -220,6 +230,9 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
 
             // Subtract amount of swapped token from fee entry amount
             feeEntryAmounts[fee.id] = feeEntryAmounts[fee.id] - tokenSwapped;
+
+            // Enable fees again
+            feesEnabled_ = true;
         }
 
         // Check if callback should be called on destination
@@ -258,11 +271,9 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
      *
      * @return isValid bool - Indicates, if the fee entry is still valid
      */
-    function _isFeeEntryValid(FeeEntry memory fee)
-        private
-        view
-        returns (bool isValid)
-    {
+    function _isFeeEntryValid(
+        FeeEntry memory fee
+    ) private view returns (bool isValid) {
         return fee.expiresAt == 0 || block.timestamp <= fee.expiresAt;
     }
 
@@ -302,11 +313,10 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
      *
      * @return tFee - Total Fee Amount
      */
-    function _calculateFee(uint256 amount, uint256 percentage)
-        private
-        pure
-        returns (uint256 tFee)
-    {
+    function _calculateFee(
+        uint256 amount,
+        uint256 percentage
+    ) private pure returns (uint256 tFee) {
         return (amount * percentage) / FEE_DIVIDER;
     }
 

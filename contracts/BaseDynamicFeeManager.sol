@@ -55,6 +55,9 @@ abstract contract BaseDynamicFeeManager is
     // Max. amount for fee entries
     uint256 public constant MAX_FEE_AMOUNT = 30;
 
+    // Min. amount for swap / liquify
+    uint256 public constant MIN_SWAP_OR_LIQUIFY_AMOUNT = 1 ether;
+
     // Fee divider
     uint256 internal constant FEE_DIVIDER = 100_000;
 
@@ -65,11 +68,11 @@ abstract contract BaseDynamicFeeManager is
     // List of all currently added fees
     FeeEntry[] internal feeEntries;
 
-    // Mapping id to current liquify or swap amounts
+    // Mapping id to current swap or liquify amounts
     mapping(bytes32 => uint256) internal feeEntryAmounts;
 
     // Fees enabled state
-    bool private _feesEnabled = false;
+    bool internal feesEnabled_ = false;
 
     // Pancake Router address
     IPancakeRouter02 private _pancakeRouter =
@@ -134,7 +137,7 @@ abstract contract BaseDynamicFeeManager is
     }
 
     function setFeesEnabled(bool value) external override onlyRole(ADMIN) {
-        _feesEnabled = value;
+        feesEnabled_ = value;
 
         emit FeeEnabledUpdated(value);
     }
@@ -251,7 +254,7 @@ abstract contract BaseDynamicFeeManager is
     }
 
     function feesEnabled() public view override returns (bool) {
-        return _feesEnabled;
+        return feesEnabled_;
     }
 
     function pancakeRouter()
@@ -472,6 +475,7 @@ abstract contract BaseDynamicFeeManager is
     /**
      * Returns the amount used for swap / liquify based on volume percentage for swap / liquify
      *
+     * @param feeId bytes32 - Fee entry id
      * @param swapOrLiquifyAmount uint256 - Fee entry swap or liquify amount
      * @param percentageVolume uint256 - Volume percentage for swap / liquify
      * @param pancakePairAddress address - Pancakeswap pair address to use for volume
@@ -479,10 +483,16 @@ abstract contract BaseDynamicFeeManager is
      * @return amount uint256 - Amount used for swap / liquify
      */
     function _getSwapOrLiquifyAmount(
+        bytes32 feeId,
         uint256 swapOrLiquifyAmount,
         uint256 percentageVolume,
         address pancakePairAddress
     ) internal view returns (uint256 amount) {
+        // If no percentage and fixed amount is set, use balance
+        if (percentageVolume == 0 && swapOrLiquifyAmount == 0) {
+            return feeEntryAmounts[feeId];
+        }
+
         if (pancakePairAddress == address(0) || percentageVolume == 0) {
             return swapOrLiquifyAmount;
         }
@@ -494,6 +504,16 @@ abstract contract BaseDynamicFeeManager is
         // Calculate percentual amount of volume
         uint256 percentualAmount = (pancakePairTokenBalance *
             percentageVolume) / 100;
+
+        // If swap or liquify amount is zero, and percentual amount is
+        // higher than collected amount, return collected amount, otherwise
+        // return percentual amount
+        if (swapOrLiquifyAmount == 0) {
+            return
+                percentualAmount > feeEntryAmounts[feeId]
+                    ? feeEntryAmounts[feeId]
+                    : percentualAmount;
+        }
 
         // Do not exceed swap or liquify amount from fee entry
         if (percentualAmount >= swapOrLiquifyAmount) {

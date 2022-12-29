@@ -46,11 +46,7 @@ contract MockPancakeRouter {
     )
         public
         payable
-        returns (
-            uint256 amountToken,
-            uint256 amountETH,
-            uint256 liquidity
-        )
+        returns (uint256 amountToken, uint256 amountETH, uint256 liquidity)
     {
         address pair = getPair[_weth][token];
 
@@ -71,8 +67,8 @@ contract MockPancakeRouter {
         address pair = getPair[path[0]][path[1]];
 
         IERC20(path[0]).transferFrom(msg.sender, pair, amountIn);
-        // MockPancakePair(_pair).swap(path[1], address(0), amountIn);
-        payable(to).transfer(amountIn);
+        MockPancakePair(pair).swap(path[1], to, amountIn);
+        //payable(to).transfer(amountIn);
     }
 
     function swapExactETHForTokensSupportingFeeOnTransferTokens(

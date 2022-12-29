@@ -215,7 +215,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
                 _swapTokensForBusd(tokenSwapped, fee.destination);
             }
 
-            if (fee.doLiquify) {
+            if (fee.doLiquify && from != pancakePairBnbAddress()) {
                 // Swap (BNB) and liquify token
                 tokenSwapped = _swapAndLiquify(
                     _getSwapOrLiquifyAmount(

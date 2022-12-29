@@ -6,7 +6,7 @@
   "scripts": {
     "test": "hardhat test",
     "test-fork": "hardhat test --network hardhat",
-    "flatten": "hardhat flatten > flattened.sol",
+    "flatten": "hardhat flatten --license MIT > flattened.sol",
     "coverage": "hardhat coverage",
     "docgen": "hardhat docgen",
     "size": "hardhat size-contracts"

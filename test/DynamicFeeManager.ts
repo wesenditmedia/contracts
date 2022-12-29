@@ -2119,7 +2119,7 @@ describe("Dynamic Fee Manager", function () {
         for (const txCount of [1, 2, 3, 5, 10, 20, 50, 100]) {
           const swapFee = 137 * 0.02
           const totalSwapFee = swapFee * txCount
-          const totalSwaps = Math.floor(totalSwapFee / 10)
+          const totalSwaps = 0 // no swaps on buy
           const overlapAmount = totalSwapFee - (totalSwaps * 10)
 
           it(`should collect fees for ${txCount} transactions`, async function () {
@@ -2407,6 +2407,27 @@ describe("Dynamic Fee Manager", function () {
           })
         }
       }
+
+      it('should liquify without reentryancy if threshold was reached two times in one transaction', async function () {
+        // Arrange
+        await mockWsi.transfer(mockPancakePairBnb.address, parseEther('1000'))
+        await setBalance(mockPancakeRouter.address, parseEther('10'))
+        await contract.addFee(...getFeeEntryArgs({ from: mockPancakePairBnb.address, percentage: 5000, destination: feeReceiver.address, doLiquify: true, swapOrLiquifyAmount: parseEther('5') })) // 5%
+        await contract.setPancakePairBnbAddress(mockPancakePairBnb.address)
+
+        // Act
+        await mockBnb.transfer(alice.address, parseEther('1000'))
+        await mockBnb.connect(alice).approve(mockPancakeRouter.address, parseEther('1000'))
+        await mockPancakeRouter.connect(alice).swapExactETHForTokensSupportingFeeOnTransferTokens(
+          parseEther('1000'),
+          [mockBnb.address, mockWsi.address],
+          alice.address,
+          moment().add('60', 'seconds').unix()
+        )
+
+        // Assert
+        expect(mockPancakePairBnb.swap).to.have.been.calledOnce
+      })
 
       it('should not add liquidity percentual based on volume if swap percentage volume is zero', async function () {
         // Arrange

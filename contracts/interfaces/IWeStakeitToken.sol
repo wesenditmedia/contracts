@@ -12,11 +12,4 @@ interface IWeStakeitToken is IERC721 {
      * @return tokenId uint256 - Minted token id
      */
     function mint(address receiver) external returns (uint256 tokenId);
-
-    /**
-     * Burn a NFT
-     *
-     * @param tokenId uint256 - Token to burn
-     */
-    function burn(uint256 tokenId) external;
 }

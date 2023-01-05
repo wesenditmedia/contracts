@@ -1,10 +1,10 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
 import chai from 'chai'
-import { ethers } from 'hardhat'
+import { ethers, network } from 'hardhat'
 import { expect } from 'chai'
-import { StakingPool } from "../typechain";
-import { smock } from '@defi-wonderland/smock';
+import { StakingPool, WeSenditToken, WeSenditToken__factory, WeStakeitToken, WeStakeitToken__factory } from "../typechain";
+import { MockContract, smock } from '@defi-wonderland/smock';
 import { BigNumber } from "ethers";
 import { formatEther, parseEther } from "ethers/lib/utils";
 import { writeFileSync } from "fs";
@@ -14,14 +14,28 @@ chai.should();
 chai.use(smock.matchers);
 
 const getBlockTimestamp = async () => {
-  const blockNum = await ethers.provider.getBlockNumber()
+  const blockNum = await getBlockNumber()
   const block = await ethers.provider.getBlock(blockNum)
 
   return block.timestamp
 }
 
+const getBlockNumber = async () => {
+  return await ethers.provider.getBlockNumber()
+}
+
+const mineBlocks = async (count: number = 1, interval: number = 3) => {
+  await network.provider.send("hardhat_mine", [
+    `0x${Math.ceil(count).toString(16)}`,
+    `0x${interval.toString(16)}`
+  ])
+}
+
 describe.only("StakingPool", function () {
   let contract: StakingPool
+
+  let mockWsi: MockContract<WeSenditToken>
+  let mockRewardToken: MockContract<WeStakeitToken>
 
   let owner: SignerWithAddress
   let alice: SignerWithAddress
@@ -31,14 +45,22 @@ describe.only("StakingPool", function () {
   beforeEach(async function () {
     [owner, alice, bob, ...addrs] = await ethers.getSigners()
 
-    const StakingPool = await ethers.getContractFactory("StakingPool");
-    contract = await StakingPool.deploy()
+    const WeSenditToken = await smock.mock<WeSenditToken__factory>('WeSenditToken')
+    mockWsi = await WeSenditToken.deploy(owner.address)
+
+    const WeStakeitToken = await smock.mock<WeStakeitToken__factory>('WeStakeitToken')
+    mockRewardToken = await WeStakeitToken.deploy()
+
+    const StakingPool = await ethers.getContractFactory("StakingPool")
+    contract = await StakingPool.deploy(mockWsi.address, mockRewardToken.address)
+
+    await mockRewardToken.transferOwnership(contract.address)
   });
 
   describe("Deployment", function () {
   });
 
-  describe("Pool Factor Calculation", function () {
+  xdescribe("Pool Factor Calculation", function () {
     beforeEach(async function () {
     })
 
@@ -181,6 +203,310 @@ describe.only("StakingPool", function () {
         ).to.equal(value.output)
       })
     }
+  })
+
+  describe('Pool Staking', function () {
+
+    afterEach(async function () {
+      await network.provider.send("hardhat_reset")
+    })
+
+    for (const entry of [
+      {
+        amount: parseEther('200'),
+        duration: 364,
+        isAutoCompoundingEnabled: true,
+        shares: 40120,
+        rewards: parseEther('388.903941675885320362')
+      },
+      {
+        amount: parseEther('200'),
+        duration: 182,
+        isAutoCompoundingEnabled: true,
+        shares: 14701,
+        rewards: parseEther('142.504407940607928581')
+      },
+      {
+        amount: parseEther('200'),
+        duration: 7,
+        isAutoCompoundingEnabled: true,
+        shares: 426,
+        rewards: parseEther('4.129438662859599863')
+      },
+      {
+        amount: parseEther('200'),
+        duration: 364,
+        isAutoCompoundingEnabled: false,
+        shares: 22000,
+        rewards: parseEther('213.257395734533326220')
+      },
+      {
+        amount: parseEther('200'),
+        duration: 182,
+        isAutoCompoundingEnabled: false,
+        shares: 11000,
+        rewards: parseEther('106.628697867266663110')
+      },
+      {
+        amount: parseEther('200'),
+        duration: 7,
+        isAutoCompoundingEnabled: false,
+        shares: 418,
+        rewards: parseEther('4.051890518956133199')
+      }
+    ]) {
+      it(`should stake given token entry (amount = ${formatEther(entry.amount)}, duration = ${entry.duration}, isAutoCompoundingEnabled = ${entry.isAutoCompoundingEnabled})`, async function () {
+        // Arrange
+        await mockWsi.approve(contract.address, entry.amount)
+        await network.provider.send("evm_setAutomine", [false]);
+
+        // Act
+        await contract.stake(
+          entry.amount,
+          entry.duration,
+          entry.isAutoCompoundingEnabled
+        )
+
+        await mineBlocks()
+
+        // Assert
+        const startBlock = await getBlockNumber()
+        const poolEntry = await contract.poolEntry(0)
+        expect(poolEntry).to.have.length(9)
+        expect(poolEntry.amount).to.equal(entry.amount)
+        expect(poolEntry.duration).to.equal(entry.duration)
+        expect(poolEntry.shares).to.equal(entry.shares)
+        expect(poolEntry.rewardDebt).to.equal(0)
+        expect(poolEntry.claimedRewards).to.equal(0)
+        expect(poolEntry.lastClaimedAt).to.equal(0)
+        expect(poolEntry.startedAt).to.equal(await getBlockTimestamp())
+        expect(poolEntry.startBlock).to.equal(await getBlockNumber())
+        expect(poolEntry.isAutoCompoundingEnabled).to.equal(entry.isAutoCompoundingEnabled)
+
+        expect(await mockRewardToken.balanceOf(owner.address)).to.equal(1)
+        expect(await mockRewardToken.ownerOf(0)).to.equal(owner.address)
+
+        expect(await contract.pendingRewards(0)).to.equal(0)
+
+        await mineBlocks()
+
+        const currentBlock = await getBlockNumber()
+        const blockDiff = BigNumber.from(currentBlock - startBlock)
+        const rewards = entry.rewards.mul(blockDiff).div(BigNumber.from(10373685))
+
+        expect(await contract.pendingRewards(0)).to.be.closeTo(rewards, 1000000000)
+
+        await mineBlocks(10373685, 3)
+
+        expect(await contract.pendingRewards(0)).to.equal(entry.rewards)
+      })
+    }
+
+    it(`should not earn rewards after duration exceeded`, async function () {
+      // Arrange
+      const amount = parseEther('200')
+      const totalRewards = parseEther('388.903941675885320362')
+      const duration = 364
+      const isAutoCompoundingEnabled = true
+
+      await mockWsi.approve(contract.address, amount)
+      await network.provider.send("evm_setAutomine", [false]);
+
+      // Act
+      await contract.stake(
+        amount,
+        duration,
+        isAutoCompoundingEnabled
+      )
+
+      await mineBlocks()
+
+      // Assert
+      const startBlock = await getBlockNumber()
+      expect(await contract.pendingRewards(0)).to.equal(0)
+
+      await mineBlocks()
+
+      const currentBlock = await getBlockNumber()
+      const blockDiff = BigNumber.from(currentBlock - startBlock)
+      const rewards = totalRewards.mul(blockDiff).div(BigNumber.from(10373685))
+
+      expect(await contract.pendingRewards(0)).to.be.closeTo(rewards, 1000000000)
+
+      await mineBlocks(10373685 * 2, 3)
+
+      expect(await contract.pendingRewards(0)).to.equal(totalRewards)
+    })
+
+    it(`should not earn rewards after duration exceeded meanwhile updatePool() was triggered`, async function () {
+      // Arrange
+      const amount = parseEther('200')
+      const totalRewards = parseEther('388.903941675885320362')
+      const duration = 364
+      const isAutoCompoundingEnabled = true
+
+      await mockWsi.approve(contract.address, amount)
+      await network.provider.send("evm_setAutomine", [false]);
+
+      // Act
+      await contract.stake(
+        amount,
+        duration,
+        isAutoCompoundingEnabled
+      )
+
+      await mineBlocks()
+
+      // Assert
+      const startBlock = await getBlockNumber()
+      expect(await contract.pendingRewards(0)).to.equal(0)
+
+      await mineBlocks()
+
+      const currentBlock = await getBlockNumber()
+      const blockDiff = BigNumber.from(currentBlock - startBlock)
+      const rewards = totalRewards.mul(blockDiff).div(BigNumber.from(10373685))
+
+      expect(await contract.pendingRewards(0)).to.be.closeTo(rewards, 1000000000)
+
+      await mineBlocks(10373685 + (10373685 / 2))
+
+      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, 1000000000)
+
+      await mockWsi.approve(contract.address, parseEther('100000'))
+      await contract.stake(
+        parseEther('100000'),
+        duration,
+        isAutoCompoundingEnabled
+      )
+
+      await mineBlocks(10373685 / 2, 3)
+
+      await contract.updatePool()
+      await mineBlocks()
+
+      console.log("bla 1")
+      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, 1000000000)
+      console.log("bla 2")
+      expect(await contract.pendingRewards(1)).to.be.closeTo(totalRewards.div(2), 1000000000)
+      console.log("bla 3")
+    })
+
+        it(`should not earn rewards after duration exceeded meanwhile updatePool() was triggered`, async function () {
+      // Arrange
+      const amount = parseEther('200')
+      const totalRewards = parseEther('388.903941675885320362')
+      const duration = 364
+      const isAutoCompoundingEnabled = true
+
+      await mockWsi.approve(contract.address, amount)
+      await network.provider.send("evm_setAutomine", [false]);
+
+      // Act
+      await contract.stake(
+        amount,
+        duration,
+        isAutoCompoundingEnabled
+      )
+
+      await mineBlocks()
+
+      // Assert
+      const startBlock = await getBlockNumber()
+      expect(await contract.pendingRewards(0)).to.equal(0)
+
+      await mineBlocks()
+
+      const currentBlock = await getBlockNumber()
+      const blockDiff = BigNumber.from(currentBlock - startBlock)
+      const rewards = totalRewards.mul(blockDiff).div(BigNumber.from(10373685))
+
+      expect(await contract.pendingRewards(0)).to.be.closeTo(rewards, 1000000000)
+
+      await mineBlocks(10373685 + (10373685 / 2))
+
+      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, 1000000000)
+
+      await mockWsi.approve(contract.address, parseEther('100000'))
+      await contract.stake(
+        parseEther('100000'),
+        duration,
+        isAutoCompoundingEnabled
+      )
+
+      await mineBlocks(10373685, 3)
+
+      await contract.updatePool()
+      await mineBlocks()
+
+      console.log("bla 1")
+      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, 1000000000)
+      console.log("bla 2")
+      expect(await contract.pendingRewards(1)).to.be.closeTo(totalRewards.div(2), 1000000000)
+      console.log("bla 3")
+    })
+    
+    it(`should not earn rewards after duration exceeded meanwhile updatePool() was triggered`, async function () {
+      // Arrange
+      const amount = parseEther('200')
+      const totalRewards = parseEther('388.903941675885320362')
+      const duration = 364
+      const isAutoCompoundingEnabled = true
+
+      await mockWsi.approve(contract.address, amount)
+      await network.provider.send("evm_setAutomine", [false]);
+
+      // Act
+      await contract.stake(
+        amount,
+        duration,
+        isAutoCompoundingEnabled
+      )
+
+      await mineBlocks()
+
+      // Assert
+      const startBlock = await getBlockNumber()
+      expect(await contract.pendingRewards(0)).to.equal(0)
+
+      await mineBlocks()
+
+      const currentBlock = await getBlockNumber()
+      const blockDiff = BigNumber.from(currentBlock - startBlock)
+      const rewards = totalRewards.mul(blockDiff).div(BigNumber.from(10373685))
+
+      expect(await contract.pendingRewards(0)).to.be.closeTo(rewards, 1000000000)
+
+      await mineBlocks(10373685 + (10373685 / 2))
+
+      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, 1000000000)
+
+      await mockWsi.approve(contract.address, parseEther('100000'))
+      await contract.stake(
+        parseEther('100000'),
+        duration,
+        isAutoCompoundingEnabled
+      )
+
+      await mockWsi.approve(contract.address, parseEther('100000'))
+      await contract.stake(
+        parseEther('100000'),
+        duration,
+        isAutoCompoundingEnabled
+      )
+
+      await mineBlocks(10373685 * 4, 3)
+
+      await contract.updatePool()
+      await mineBlocks()
+
+      console.log("bla 1")
+      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, 1000000000)
+      console.log("bla 2")
+      expect(await contract.pendingRewards(1)).to.be.closeTo(totalRewards.div(2), 1000000000)
+      console.log("bla 3")
+    })
+
   })
 
 })

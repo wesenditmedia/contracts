@@ -21,8 +21,8 @@ struct FeeEntry {
     uint256 percentage;
     // Fee destination address
     address destination;
-    // Indicator, if callback should be called on the destination address
-    bool doCallback;
+    // Indicator, if contracts should be excluded from this fee
+    bool excludeContracts;
     // Indicator, if the fee amount should be used to add liquidation on DEX
     bool doLiquify;
     // Indicator, if the fee amount should be swapped to BUSD
@@ -42,7 +42,7 @@ interface IDynamicFeeManager {
      * @param to address - Receiver address OR address(0) for wildcard
      * @param percentage uint256 - Fee percentage to take multiplied by 100000
      * @param destination address - Destination address for the fee
-     * @param doCallback bool - Indicates, if a callback should be called at the fee destination
+     * @param excludeContracts bool - Indicates, if contracts should be excluded from this fee
      * @param doLiquify bool - Indicates, if the fee amount should be used to add liquidy on DEX
      * @param doSwapForBusd bool - Indicates, if the fee amount should be swapped to BUSD
      * @param swapOrLiquifyAmount uint256 - Amount for liquidify or swap
@@ -54,7 +54,7 @@ interface IDynamicFeeManager {
         address to,
         uint256 percentage,
         address indexed destination,
-        bool doCallback,
+        bool excludeContracts,
         bool doLiquify,
         bool doSwapForBusd,
         uint256 swapOrLiquifyAmount,
@@ -77,7 +77,7 @@ interface IDynamicFeeManager {
      * @param from address - Sender address OR address(0) for wildcard
      * @param to address - Receiver address OR address(0) for wildcard
      * @param destination address - Destination address for the fee
-     * @param doCallback bool - Indicates, if a callback should be called at the fee destination
+     * @param excludeContracts bool - Indicates, if contracts should be excluded from this fee
      * @param doLiquify bool - Indicates, if the fee amount should be used to add liquidy on DEX
      * @param doSwapForBusd bool - Indicates, if the fee amount should be swapped to BUSD
      * @param swapOrLiquifyAmount uint256 - Amount for liquidify or swap
@@ -90,7 +90,7 @@ interface IDynamicFeeManager {
         address to,
         uint256 tFee,
         address indexed destination,
-        bool doCallback,
+        bool excludeContracts,
         bool doLiquify,
         bool doSwapForBusd,
         uint256 swapOrLiquifyAmount,
@@ -195,7 +195,7 @@ interface IDynamicFeeManager {
      * @param to address - Receiver address OR wildcard address
      * @param percentage uint256 - Fee percentage to take multiplied by 100000
      * @param destination address - Destination address for the fee
-     * @param doCallback bool - Indicates, if a callback should be called at the fee destination
+     * @param excludeContracts bool - Indicates, if contracts should be excluded from this fee
      * @param doLiquify bool - Indicates, if the fee amount should be used to add liquidy on DEX
      * @param doSwapForBusd bool - Indicates, if the fee amount should be swapped to BUSD
      * @param swapOrLiquifyAmount uint256 - Amount for liquidify or swap
@@ -208,7 +208,7 @@ interface IDynamicFeeManager {
         address to,
         uint256 percentage,
         address destination,
-        bool doCallback,
+        bool excludeContracts,
         bool doLiquify,
         bool doSwapForBusd,
         uint256 swapOrLiquifyAmount,

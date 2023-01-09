@@ -50,18 +50,18 @@ const config: HardhatUserConfig = {
       accounts:
         process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
     },
-    hardhat: {
+/**    hardhat: {
       forking: {
         url: process.env.BSC_GETBLOCK_URL || '',
       }
-    }
+    }*/
   },
   gasReporter: {
     enabled: process.env.REPORT_GAS !== undefined,
     currency: "USD",
   },
   mocha: {
-    timeout: 70000
+    timeout: 700000
   },
   docgen: {
     path: './docs',

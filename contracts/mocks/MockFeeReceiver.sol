@@ -11,4 +11,6 @@ contract MockFeeReceiver is IFeeReceiver {
         address to,
         uint256 amount
     ) external override {}
+
+    receive() external payable {}
 }

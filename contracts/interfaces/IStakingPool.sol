@@ -21,9 +21,9 @@ struct PoolEntry {
     uint256 lastClaimedAt;
     // Block timestamp of staking start
     uint256 startedAt;
-    // Block number of staking start
-    uint256 startBlock;
-    // Indiciator, if auto compounding should be used
+    // Indicator, if entry was already unstaked
+    bool isUnstaked;
+    // Indicator, if auto compounding should be used
     bool isAutoCompoundingEnabled;
 }
 
@@ -38,11 +38,14 @@ interface IStakingPool {
     function currentPoolFactor() external view returns (uint256 poolFactor);
 
     /**
-     * Last block rewards were calculated at
+     * Last block timestamp rewards were calculated at
      *
-     * @return lastRewardBlock uint256 - Last block rewards were calculated at
+     * @return lastRewardTimestamp uint256 - Last block timestamp rewards were calculated at
      */
-    function lastRewardBlock() external view returns (uint256 lastRewardBlock);
+    function lastRewardTimestamp()
+        external
+        view
+        returns (uint256 lastRewardTimestamp);
 
     /**
      * Total amount of allocated pool shares

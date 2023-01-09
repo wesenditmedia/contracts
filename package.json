@@ -6,7 +6,7 @@
   "scripts": {
     "test": "hardhat test",
     "test-fork": "hardhat test --network hardhat",
-    "flatten": "hardhat flatten --license MIT > flattened.sol",
+    "flatten": "hardhat flatten > flattened.sol",
     "coverage": "hardhat coverage",
     "docgen": "hardhat docgen",
     "size": "hardhat size-contracts"
@@ -14,7 +14,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@openzeppelin/contracts": "^4.5.0",
+    "@openzeppelin/contracts": "^4.8.0",
     "@prb/math": "^2.5.0",
     "@types/lodash": "^4.14.179",
     "@types/moment": "^2.13.0",

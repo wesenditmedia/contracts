@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Arrays.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
+import "./StakingPoolSnapshot.sol";
 import "./EmergencyGuard.sol";
 import "./interfaces/IStakingPool.sol";
 import "./utils/WeSenditMath.sol";
@@ -17,6 +18,7 @@ import "hardhat/console.sol";
 
 abstract contract BaseStakingPool is
     IStakingPool,
+    StakingPoolSnapshot,
     EmergencyGuard,
     Ownable,
     AccessControlEnumerable,
@@ -25,8 +27,12 @@ abstract contract BaseStakingPool is
     using Arrays for uint256[];
     using Counters for Counters.Counter;
 
-    // Token per block multiplied by 100 = max. 200% APY
-    uint256 public constant TOKEN_PER_BLOCK = 11.56 ether;
+    // Rewards in token per second
+    // Calculation: Max. rewards per year (365 days) / 31_536_000 (seconds per year)
+    uint256 public constant TOKEN_PER_SECOND = 7654263202075702075;
+
+    // Initial pool token balance
+    uint256 internal constant INITIAL_POOL_BALANCE = 120_000_000 ether;
 
     // Seconds per day
     uint256 internal constant SECONDS_PER_DAY = 86400;
@@ -34,11 +40,17 @@ abstract contract BaseStakingPool is
     // Seconds per hour
     uint256 internal constant SECONDS_PER_HOUR = 3600;
 
-    // Current pool factor, updated on every updatePool() call
-    uint256 internal _currentPoolFactor;
+    // Claiming interval for non auto-compounding rewards
+    uint256 internal _rewardsClaimInterval = 36 * SECONDS_PER_DAY;
 
-    // Last block rewards were calculated at, updated on every updatePool() call
-    uint256 internal _lastRewardBlock;
+    // Indicator, if pool is paused (no stake, no unstake, no claim)
+    bool internal _poolPaused = false;
+
+    // Current pool factor, updated on every updatePool() call
+    uint256 internal _currentPoolFactor = 100 ether;
+
+    // Timestamp of last block rewards were calculated
+    uint256 internal _lastRewardTimestamp;
 
     // Amount of allocated pool shares
     uint256 internal _allocatedPoolShares;
@@ -46,106 +58,11 @@ abstract contract BaseStakingPool is
     // Amount of accured rewards per share, updated on every updatePool() call
     uint256 internal _accRewardsPerShare;
 
-    // Amount of allocated pool rewards, updated on every updatePool() call
-    uint256 internal _allocatedPoolRewards;
-
     // Total amount of locked token (excluding rewards)
     uint256 internal _totalTokenLocked;
 
-    struct Snapshots {
-        uint256[] ids;
-        uint256[] values;
-    }
-
-    Counters.Counter private _currentSnapshotId;
-    Snapshots internal _accRewardsPerShareSnapshots;
-    Snapshots internal _poolFactorSnapshots;
-
-    function _snapshot() internal virtual returns (uint256) {
-        _currentSnapshotId.increment();
-
-        uint256 currentId = _getCurrentSnapshotId();
-        return currentId;
-    }
-
-    function _getCurrentSnapshotId() internal view virtual returns (uint256) {
-        return block.number;
-    }
-
-    function _valueAt(
-        uint256 snapshotId,
-        Snapshots storage snapshots
-    ) private view returns (bool, uint256, uint256) {
-        require(snapshotId > 0, "ERC20Snapshot: id is 0");
-        require(
-            snapshotId <= _getCurrentSnapshotId(),
-            "ERC20Snapshot: nonexistent id"
-        );
-
-        // When a valid snapshot is queried, there are three possibilities:
-        //  a) The queried value was not modified after the snapshot was taken. Therefore, a snapshot entry was never
-        //  created for this id, and all stored snapshot ids are smaller than the requested one. The value that corresponds
-        //  to this id is the current one.
-        //  b) The queried value was modified after the snapshot was taken. Therefore, there will be an entry with the
-        //  requested id, and its value is the one to return.
-        //  c) More snapshots were created after the requested one, and the queried value was later modified. There will be
-        //  no entry for the requested id: the value that corresponds to it is that of the smallest snapshot id that is
-        //  larger than the requested one.
-        //
-        // In summary, we need to find an element in an array, returning the index of the smallest value that is larger if
-        // it is not found, unless said value doesn't exist (e.g. when all values are smaller). Arrays.findUpperBound does
-        // exactly this.
-        uint256 index = snapshots.ids.findUpperBound(snapshotId);
-
-        if (index == snapshots.ids.length) {
-            return (false, 0, 0);
-        } else {
-            return (true, snapshots.ids[index], snapshots.values[index]);
-        }
-    }
-
-    function _accRewardsPerShareAt(
-        uint256 snapshotId
-    ) public view virtual returns (uint256, uint256) {
-        (bool snapshotted, uint256 id, uint256 value) = _valueAt(
-            snapshotId,
-            _accRewardsPerShareSnapshots
-        );
-
-        return (id, snapshotted ? value : _accRewardsPerShare);
-    }
-
-    function _poolFactorAt(
-        uint256 snapshotId
-    ) public view virtual returns (uint256, uint256) {
-        (bool snapshotted, uint256 id, uint256 value) = _valueAt(
-            snapshotId,
-            _poolFactorSnapshots
-        );
-
-        return (id, snapshotted ? value : _currentPoolFactor);
-    }
-
-    function _updateSnapshot(
-        Snapshots storage snapshots,
-        uint256 currentValue
-    ) internal {
-        uint256 currentId = _getCurrentSnapshotId();
-        if (_lastSnapshotId(snapshots.ids) < currentId) {
-            snapshots.ids.push(currentId);
-            snapshots.values.push(currentValue);
-        }
-    }
-
-    function _lastSnapshotId(
-        uint256[] storage ids
-    ) private view returns (uint256) {
-        if (ids.length == 0) {
-            return 0;
-        } else {
-            return ids[ids.length - 1];
-        }
-    }
+    // Total sum of staking durations
+    uint256 internal _totalDurationLocked;
 
     // Token used for staking
     IERC20 private _stakeToken = IERC20(address(0));
@@ -165,32 +82,55 @@ abstract contract BaseStakingPool is
         _;
     }
 
+    modifier onlyUnpaused() {
+        require(
+            !poolPaused(),
+            "Staking Pool: Pool operations are currently paused"
+        );
+        _;
+    }
+
     constructor(address stakeTokenAddress, address rewardTokenAddress) {
         _stakeToken = IERC20(stakeTokenAddress);
         _rewardToken = IWeStakeitToken(rewardTokenAddress);
+    }
 
-        // Initially calculate pool factor
-        _currentPoolFactor = poolFactor(poolBalance());
+    function setRewardsClaimInterval(uint256 value) external onlyOwner {
+        _rewardsClaimInterval = value;
+    }
+
+    function setPoolPaused(bool value) external onlyOwner {
+        _poolPaused = value;
+    }
+
+    function rewardsClaimInterval() public view returns (uint256 value) {
+        return _rewardsClaimInterval;
+    }
+
+    function poolPaused() public view returns (bool value) {
+        return _poolPaused;
     }
 
     function currentPoolFactor() public view returns (uint256 value) {
         return _currentPoolFactor;
     }
 
-    function lastRewardBlock() public view returns (uint256 value) {
-        return _lastRewardBlock;
+    function lastRewardTimestamp() public view returns (uint256 value) {
+        return _lastRewardTimestamp;
     }
 
     function allocatedPoolShares() public view returns (uint256 value) {
         return _allocatedPoolShares;
     }
 
-    function totalPoolShares() public pure returns (uint256 value) {
-        return 120_000_000 * 1e2;
+    function accRewardsPerShare() public view returns (uint256 value) {
+        return _accRewardsPerShare;
     }
 
-    function maxPoolSharesPerUser() public view returns (uint256 value) {
-        // TODO
+    function totalPoolShares() public pure returns (uint256 value) {
+        // Total possible shares per year (365 days)
+        // Calculation: 120_000_000 * 200.60293% (max APY) * (365/364)
+        return 240_723_516 * 1e2;
     }
 
     function totalTokenLocked() public view returns (uint256 value) {
@@ -218,12 +158,21 @@ abstract contract BaseStakingPool is
     }
 
     function poolBalance() public view returns (uint256 value) {
-        // return token().balanceOf(address(this));
+        return poolBalance(currentPoolFactor());
+    }
 
-        // TODO: multiply rewards with pool factor
-        // TODO: handle acc rewards
-        // TODO: switch to getters
-        return 120_000_000 ether - _allocatedPoolRewards - totalTokenLocked();
+    function poolBalance(
+        uint256 customPoolFactor
+    ) public view returns (uint256 value) {
+        // Get current pool balance
+        uint256 tokenBalance = stakeToken().balanceOf(address(this));
+
+        // Calculate all rewards paid or are claimable until now
+        uint256 rewardDebt = allocatedPoolShares() *
+            _calculateAccRewardsPerShareCustom(customPoolFactor);
+
+        // Subtract locked token and rewardDebt from actual pool balance
+        return tokenBalance - totalTokenLocked() - rewardDebt;
     }
 
     function poolEntry(
@@ -240,22 +189,13 @@ abstract contract BaseStakingPool is
         uint256 duration,
         uint256 factor
     ) public pure returns (uint256 value) {
-        // Handle overflow
-        if (duration > maxDuration()) {
-            duration = maxDuration();
-        }
-
-        uint256 _roi = 11 * 1e4; // 110%
-        uint256 _poolFactor = factor / 1e14;
-        uint256 _compoundInterval = compoundInterval() * 1e4;
-        uint256 _duration = duration * 1e7;
-        uint256 _maxDuration = maxDuration() * 1e4;
-
-        uint256 x = 1e7 + (_roi * _poolFactor) / _compoundInterval;
-        uint256 y = _compoundInterval * (_duration / _maxDuration);
-        uint256 pow = WeSenditMath.power(x, y / 1e7, 7);
-
-        return pow - 1e7;
+        return
+            WeSenditMath.apy(
+                duration,
+                factor,
+                maxDuration(),
+                compoundInterval()
+            );
     }
 
     function apr(uint256 duration) public view returns (uint256 value) {
@@ -266,52 +206,33 @@ abstract contract BaseStakingPool is
         uint256 duration,
         uint256 factor
     ) public pure returns (uint256 value) {
-        // Handle overflow
-        if (duration > maxDuration()) {
-            duration = maxDuration();
-        }
+        return WeSenditMath.apr(duration, factor, maxDuration());
+    }
 
-        uint256 _roi = 11 * 1e4; // 110%
-        uint256 _poolFactor = factor / 1e14;
-        uint256 _duration = duration * 1e7;
-        uint256 _maxDuration = maxDuration() * 1e4;
-
-        uint256 x = _roi * _poolFactor;
-        uint256 y = _duration / _maxDuration;
-
-        return (x * y) / 1e7;
+    function poolFactor() public view returns (uint256 value) {
+        return WeSenditMath.poolFactor(poolBalance());
     }
 
     function poolFactor(uint256 balance) public pure returns (uint256 value) {
-        uint256 pMax = 120_000_000 ether;
-        uint256 pMin = 0;
+        return WeSenditMath.poolFactor(balance);
+    }
 
-        // Handle overflow
-        if (balance > pMax) {
-            balance = pMax;
-        }
+    function accRewardsPerShareAt(
+        uint256 snapshotId
+    ) public view virtual returns (uint256, uint256) {
+        return _accRewardsPerShareAt(snapshotId, accRewardsPerShare());
+    }
 
-        uint256 PI = Trigonometry.PI; // / 1e13;
-        uint256 bracketsOne = (pMax / 1e13) - (balance / 1e13);
-        uint256 bracketsTwo = (pMax / 1e18) - (pMin / 1e18);
-        uint256 division = bracketsOne / bracketsTwo;
-        uint256 bracketsCos = (PI * division) / 1e5;
+    function currentPoolFactorAt(
+        uint256 snapshotId
+    ) public view virtual returns (uint256, uint256) {
+        return _currentPoolFactorAt(snapshotId, currentPoolFactor());
+    }
 
-        uint256 cos;
-        uint256 brackets;
-        if (bracketsCos >= Trigonometry.PI_OVER_TWO) {
-            cos = uint256(Trigonometry.cos(bracketsCos + Trigonometry.PI));
-            brackets = (cos + 1e18) / (2 * 1e1);
-            // Subtract cos result from brackets result, since we shifted the cos input by PI
-            brackets -= (cos / 1e1);
-        } else {
-            cos = uint256(Trigonometry.cos(bracketsCos));
-            brackets = (cos + 1e18) / (2 * 1e1);
-        }
-
-        uint256 result = brackets * (100 - 15) + (15 * 1e17);
-
-        return result * 1e1;
+    function lastRewardTimestampAt(
+        uint256 snapshotId
+    ) public view virtual returns (uint256, uint256) {
+        return _lastRewardTimestampAt(snapshotId, lastRewardTimestamp());
     }
 
     function _calculateAccRewardsPerShare()
@@ -319,35 +240,170 @@ abstract contract BaseStakingPool is
         view
         returns (uint256 accRewardsPerShare)
     {
-        uint256 blocksSinceLastRewards = block.number - lastRewardBlock();
+        return
+            _calculateAccRewardsPerShare(
+                lastRewardTimestamp(),
+                currentPoolFactor(),
+                _accRewardsPerShare
+            );
+    }
 
-        // Calculate total rewards since lastRewardBlock
-        uint256 totalRewards = blocksSinceLastRewards * TOKEN_PER_BLOCK;
-
-        // Multiply rewards with pool factor
-        uint256 currentRewards = (totalRewards * 1e5) /
-            (currentPoolFactor() / 1e15);
-
-        // Calculate rewards per share
-        return _accRewardsPerShare + (currentRewards / totalPoolShares());
+    function _calculateAccRewardsPerShareCustom(
+        uint256 customPoolFactor
+    ) internal view returns (uint256 accRewardsPerShare) {
+        return
+            _calculateAccRewardsPerShare(
+                lastRewardTimestamp(),
+                customPoolFactor,
+                _accRewardsPerShare
+            );
     }
 
     function _calculateAccRewardsPerShare(
-        uint256 blockCount,
-        uint256 poolFactor
-    ) internal view returns (uint256 value) {
-        uint256 blocksSinceLastRewards = block.number - lastRewardBlock();
-1
-        // Calculate total rewards since lastRewardBlock
-        uint256 totalRewards = blocksSinceLastRewards * TOKEN_PER_BLOCK;
+        uint256 customSecondsSinceLastRewards
+    ) internal view returns (uint256 accRewardsPerShare) {
+        // Calculate total rewards since lastRewardTimestamp
+        uint256 totalRewards = customSecondsSinceLastRewards * TOKEN_PER_SECOND;
 
         // Multiply rewards with pool factor
-        uint256 currentRewards = (totalRewards * 1e5) / (poolFactor / 1e15);
+        uint256 currentRewards = (totalRewards * currentPoolFactor()) /
+            100 ether;
 
         // Calculate rewards per share
-        return _accRewardsPerShare + (currentRewards / totalPoolShares());
+        return currentRewards / totalPoolShares();
     }
 
+    function _calculateAccRewardsPerShare(
+        uint256 customLastRewardTimestamp,
+        uint256 customPoolFactor,
+        uint256 customAccRewardsPerShare
+    ) internal view returns (uint256 accRewardsPerShare) {
+        // Calculate seconds elapsed since last reward update
+        uint256 secondsSinceLastRewards = block.timestamp -
+            customLastRewardTimestamp;
+
+        // Calculate total rewards since lastRewardTimestamp
+        uint256 totalRewards = secondsSinceLastRewards * TOKEN_PER_SECOND;
+
+        // Multiply rewards with pool factor
+        uint256 currentRewards = (totalRewards * customPoolFactor) / 100 ether;
+
+        // Calculate rewards per share
+        return customAccRewardsPerShare + (currentRewards / totalPoolShares());
+    }
+
+    function _calculateAccRewardsPerShareForSeconds(
+        uint256 customSecondsSinceLastRewards,
+        uint256 customPoolFactor,
+        uint256 customAccRewardsPerShare
+    ) internal pure returns (uint256 accRewardsPerShare) {
+        // Calculate total rewards since lastRewardTimestamp
+        uint256 totalRewards = customSecondsSinceLastRewards * TOKEN_PER_SECOND;
+
+        // Multiply rewards with pool factor
+        uint256 currentRewards = (totalRewards * customPoolFactor) / 100 ether;
+
+        // Calculate rewards per share
+        return customAccRewardsPerShare + (currentRewards / totalPoolShares());
+    }
+
+    /**
+     * Validates staking duration
+     *
+     * @param duration uint256 - Staking duration in days
+     */
+    function _validateStakingDuration(uint256 duration) internal pure {
+        // Check for min. / max. duration
+        require(
+            duration >= minDuration() && duration <= maxDuration(),
+            "Staking Pool: Invalid staking duration"
+        );
+
+        // Check for full week
+        require(
+            duration % 7 == 0,
+            "Staking Pool: Staking duration needs to be a full week"
+        );
+    }
+
+    /**
+     * Validates staking amount
+     *
+     * @param amount uint256 - Amount of token to stake
+     */
+    function _validateStakingAmount(uint256 amount) internal {
+        // Important: check for max. staking amount before transferring token to pool
+        require(
+            amount <= _calculateMaxStakingAmount(),
+            "Staking Pool: Max. staking amount exceeded"
+        );
+
+        // CHeck allowance
+        uint256 allowance = stakeToken().allowance(_msgSender(), address(this));
+        require(allowance >= amount, "Staking Pool: Amount exceeds allowance");
+
+        // Transfer token to pool
+        require(
+            stakeToken().transferFrom(_msgSender(), address(this), amount),
+            "Staking Pool: Failed to transfer token"
+        );
+    }
+
+    /**
+     * Calculates max. staking amount
+     *
+     * @return maxAmount uint256 - Max. amount of token allowed to stake
+     */
+    function _calculateMaxStakingAmount()
+        internal
+        view
+        returns (uint256 maxAmount)
+    {
+        // Get current pool balance
+        uint256 balance = poolBalance();
+
+        // Calculate upper limit (= 80% of initial balance)
+        uint256 upperLimit = (INITIAL_POOL_BALANCE * 80) / 100;
+
+        if (balance > upperLimit) {
+            // If current pool balance is greater than 80% of initial balance, allow up
+            // to 1_000_000 token.
+            return 1_000_000 ether;
+        } else {
+            // If current pool balance is below or equal 80% of initial balance, allow up
+            // to (1% * pool balance) token
+            return (balance * 1) / 100;
+        }
+    }
+
+    function _calculateHistoricRewards(
+        uint256 shares,
+        uint256 endTimestamp
+    ) internal view returns (uint256 rewards) {
+        // Get snapshot values
+        (, uint256 lastRewardTimestampSnapshot) = lastRewardTimestampAt(
+            endTimestamp
+        );
+        (, uint256 poolFactorSnapshot) = currentPoolFactorAt(endTimestamp);
+        (, uint256 accRewardsPerShareSnapshot) = accRewardsPerShareAt(
+            endTimestamp
+        );
+
+        // Calculate remaining duration until staking end
+        // TODO: handle negative values
+        uint256 durationDiff = endTimestamp - lastRewardTimestampSnapshot;
+
+        // Calculate rewards using snapshot values and remaining duration
+        return
+            shares *
+            _calculateAccRewardsPerShareForSeconds(
+                durationDiff,
+                poolFactorSnapshot,
+                accRewardsPerShareSnapshot
+            );
+    }
+
+    // Emergency functions
     function emergencyWithdraw(uint256 amount) external override onlyOwner {
         super._emergencyWithdraw(amount);
     }

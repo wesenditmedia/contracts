@@ -22,7 +22,7 @@ export const getFeeEntryArgs = (args?: {
   to?: string,
   percentage?: BigNumberish,
   destination?: string,
-  doCallback?: boolean,
+  excludeContracts?: boolean,
   doLiquify?: boolean,
   doSwapForBusd?: boolean,
   swapOrLiquifyAmount?: BigNumberish,
@@ -33,7 +33,7 @@ export const getFeeEntryArgs = (args?: {
     args?.to ?? WILDCARD_ADDRESS,
     args?.percentage ?? 0,
     args?.destination ?? ethers.constants.AddressZero,
-    args?.doCallback ?? false,
+    args?.excludeContracts ?? false,
     args?.doLiquify ?? false,
     args?.doSwapForBusd ?? false,
     args?.swapOrLiquifyAmount ?? 0,
@@ -376,7 +376,7 @@ describe("Dynamic Fee Manager", function () {
             to: bob.address,
             percentage: 1234,
             destination: addrs[0].address,
-            doCallback: true,
+            excludeContracts: true,
             doLiquify: true,
             doSwapForBusd: false,
             swapOrLiquifyAmount: 5678,
@@ -391,7 +391,7 @@ describe("Dynamic Fee Manager", function () {
         expect(fee.to).to.equal(bob.address)
         expect(fee.percentage).to.equal(1234)
         expect(fee.destination).to.equal(addrs[0].address)
-        expect(fee.doCallback).to.be.true
+        expect(fee.excludeContracts).to.be.true
         expect(fee.doLiquify).to.be.true
         expect(fee.doSwapForBusd).to.be.false
         expect(fee.swapOrLiquifyAmount).to.equal(5678)
@@ -406,7 +406,7 @@ describe("Dynamic Fee Manager", function () {
             to: bob.address,
             percentage: 1234,
             destination: addrs[0].address,
-            doCallback: true,
+            excludeContracts: true,
             doLiquify: false,
             doSwapForBusd: true,
             swapOrLiquifyAmount: 5678,
@@ -421,7 +421,7 @@ describe("Dynamic Fee Manager", function () {
         expect(fee.to).to.equal(bob.address)
         expect(fee.percentage).to.equal(1234)
         expect(fee.destination).to.equal(addrs[0].address)
-        expect(fee.doCallback).to.be.true
+        expect(fee.excludeContracts).to.be.true
         expect(fee.doLiquify).to.be.false
         expect(fee.doSwapForBusd).to.be.true
         expect(fee.swapOrLiquifyAmount).to.equal(5678)
@@ -1179,6 +1179,72 @@ describe("Dynamic Fee Manager", function () {
         expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
       })
 
+      it('should reflect fee if sender is contract', async function () {
+        // Arrange
+        await contract.grantRole(CALL_REFLECT_FEES_ROLE, mockFeeReceiver.address)
+
+        // Impersonate mock contract
+        const contractSigner = await ethers.getSigner(mockFeeReceiver.address);
+
+        // Send ETH to be able to make calls
+        await owner.sendTransaction({
+          to: contractSigner.address,
+          value: ethers.utils.parseEther("10.0"),
+        })
+
+        // Transfer token to mock contract
+        await mockWsi.transfer(mockFeeReceiver.address, parseEther('100'))
+        await mockWsi.connect(contractSigner).approve(contract.address, parseEther('100'))
+
+        // Add wallet-to-wallet fee
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, excludeContracts: false })) // 10%
+
+        // Act
+        await contract.connect(contractSigner).reflectFees(
+          contractSigner.address,
+          alice.address,
+          parseEther('100')
+        )
+
+        // Assert
+        expect(mockWsi.transferFromNoFees).to.have.been.called
+        expect(await mockWsi.balanceOf(contractSigner.address)).to.equal(parseEther('90'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('10'))
+      })
+
+      it('should not reflect fee if sender is contract', async function () {
+        // Arrange
+        await contract.grantRole(CALL_REFLECT_FEES_ROLE, mockFeeReceiver.address)
+
+        // Impersonate mock contract
+        const contractSigner = await ethers.getSigner(mockFeeReceiver.address);
+
+        // Send ETH to be able to make calls
+        await owner.sendTransaction({
+          to: contractSigner.address,
+          value: ethers.utils.parseEther("10.0"),
+        })
+
+        // Transfer token to mock contract
+        await mockWsi.transfer(mockFeeReceiver.address, parseEther('100'))
+        await mockWsi.connect(contractSigner).approve(contract.address, parseEther('100'))
+
+        // Add wallet-to-wallet fee
+        await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000, excludeContracts: true })) // 10%
+
+        // Act
+        await contract.connect(contractSigner).reflectFees(
+          contractSigner.address,
+          alice.address,
+          parseEther('100')
+        )
+
+        // Assert
+        expect(mockWsi.transferFromNoFees).to.have.not.been.called
+        expect(await mockWsi.balanceOf(contractSigner.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(addrs[0].address)).to.equal(parseEther('0'))
+      })
+
       it('should emit event on fee reflection', async function () {
         // Arrange
         await contract.addFee(...getFeeEntryArgs({ destination: addrs[0].address, percentage: 10000 })) // 10%
@@ -1348,10 +1414,10 @@ describe("Dynamic Fee Manager", function () {
       })
     })
 
-    describe('Fees with callback', function () {
+    /**describe('Fees with callback', function () {
       it('should reflect single fee and call callback', async function () {
         // Arrange
-        await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, doCallback: true })) // 10%
+        await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 10000, excludeContracts: true })) // 10%
 
         // Act
         await contract.connect(alice).reflectFees(
@@ -1373,9 +1439,9 @@ describe("Dynamic Fee Manager", function () {
 
       it('should reflect multiple fees and call callbacks', async function () {
         // Arrange
-        await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 1000, doCallback: true })) // 1%
-        await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 250, doCallback: true })) // 0.25%
-        await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 500, doCallback: true })) // 0.5%
+        await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 1000, excludeContracts: true })) // 1%
+        await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 250, excludeContracts: true })) // 0.25%
+        await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 500, excludeContracts: true })) // 0.5%
 
         // Act
         await contract.connect(alice).reflectFees(
@@ -1414,11 +1480,11 @@ describe("Dynamic Fee Manager", function () {
 
       it('should reflect relevant fees and call callbacks', async function () {
         // Arrange
-        await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 1000, doCallback: true })) // 1% (matches)
-        await contract.addFee(...getFeeEntryArgs({ from: bob.address, destination: mockFeeReceiver.address, percentage: 150, doCallback: true })) // 0.15%
-        await contract.addFee(...getFeeEntryArgs({ to: bob.address, destination: mockFeeReceiver.address, percentage: 250, doCallback: true })) // 0.25% (matches)
-        await contract.addFee(...getFeeEntryArgs({ from: alice.address, destination: mockFeeReceiver.address, percentage: 350, doCallback: false })) // 0.35% (matches, no callback)
-        await contract.addFee(...getFeeEntryArgs({ to: alice.address, destination: mockFeeReceiver.address, percentage: 450, doCallback: true })) // 0.45%
+        await contract.addFee(...getFeeEntryArgs({ destination: mockFeeReceiver.address, percentage: 1000, excludeContracts: true })) // 1% (matches)
+        await contract.addFee(...getFeeEntryArgs({ from: bob.address, destination: mockFeeReceiver.address, percentage: 150, excludeContracts: true })) // 0.15%
+        await contract.addFee(...getFeeEntryArgs({ to: bob.address, destination: mockFeeReceiver.address, percentage: 250, excludeContracts: true })) // 0.25% (matches)
+        await contract.addFee(...getFeeEntryArgs({ from: alice.address, destination: mockFeeReceiver.address, percentage: 350, excludeContracts: false })) // 0.35% (matches, no callback)
+        await contract.addFee(...getFeeEntryArgs({ to: alice.address, destination: mockFeeReceiver.address, percentage: 450, excludeContracts: true })) // 0.45%
 
         // Act
         await contract.connect(alice).reflectFees(
@@ -1449,7 +1515,7 @@ describe("Dynamic Fee Manager", function () {
 
       it('should not reflect single fee and call callback if destination is contract and not implements IFeeReceiver', async function () {
         // Arrange
-        await contract.addFee(...getFeeEntryArgs({ destination: mockWsi.address, percentage: 10000, doCallback: true })) // 10%
+        await contract.addFee(...getFeeEntryArgs({ destination: mockWsi.address, percentage: 10000, excludeContracts: true })) // 10%
 
         // Act & Assert
         await expect(contract.connect(alice).reflectFees(
@@ -1458,7 +1524,7 @@ describe("Dynamic Fee Manager", function () {
           parseEther('100')
         )).to.not.be.reverted
       })
-    })
+    })*/
 
     describe('Fees with liquify', function () {
       it('should collect liquidation amount for single fee', async function () {

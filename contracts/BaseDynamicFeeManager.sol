@@ -118,21 +118,15 @@ abstract contract BaseDynamicFeeManager is
     /**
      * Getter & Setter
      */
-    function getFee(uint256 index)
-        external
-        view
-        override
-        returns (FeeEntry memory fee)
-    {
+    function getFee(
+        uint256 index
+    ) external view override returns (FeeEntry memory fee) {
         return feeEntries[index];
     }
 
-    function getFeeAmount(bytes32 id)
-        external
-        view
-        override
-        returns (uint256 amount)
-    {
+    function getFeeAmount(
+        bytes32 id
+    ) external view override returns (uint256 amount) {
         return feeEntryAmounts[id];
     }
 
@@ -177,27 +171,22 @@ abstract contract BaseDynamicFeeManager is
         emit FeeLimitsDecreased();
     }
 
-    function emergencyWithdraw(uint256 amount)
-        external
-        override
-        onlyRole(ADMIN)
-    {
+    function emergencyWithdraw(
+        uint256 amount
+    ) external override onlyRole(ADMIN) {
         super._emergencyWithdraw(amount);
     }
 
-    function emergencyWithdrawToken(address tokenToWithdraw, uint256 amount)
-        external
-        override
-        onlyRole(ADMIN)
-    {
+    function emergencyWithdrawToken(
+        address tokenToWithdraw,
+        uint256 amount
+    ) external override onlyRole(ADMIN) {
         super._emergencyWithdrawToken(tokenToWithdraw, amount);
     }
 
-    function setPercentageVolumeSwap(uint256 value)
-        external
-        override
-        onlyRole(ADMIN)
-    {
+    function setPercentageVolumeSwap(
+        uint256 value
+    ) external override onlyRole(ADMIN) {
         require(
             value <= 100,
             "DynamicFeeManager: Invalid percentage volume swap value"
@@ -208,11 +197,9 @@ abstract contract BaseDynamicFeeManager is
         emit PercentageVolumeSwapUpdated(value);
     }
 
-    function setPercentageVolumeLiquify(uint256 value)
-        external
-        override
-        onlyRole(ADMIN)
-    {
+    function setPercentageVolumeLiquify(
+        uint256 value
+    ) external override onlyRole(ADMIN) {
         require(
             value <= 100,
             "DynamicFeeManager: Invalid percentage volume liquify value"
@@ -223,11 +210,9 @@ abstract contract BaseDynamicFeeManager is
         emit PercentageVolumeLiquifyUpdated(value);
     }
 
-    function setPancakePairBusdAddress(address value)
-        external
-        override
-        onlyRole(ADMIN)
-    {
+    function setPancakePairBusdAddress(
+        address value
+    ) external override onlyRole(ADMIN) {
         require(
             value != address(0),
             "DynamicFeeManager: Cannot set BUSD pair to zero address"
@@ -238,11 +223,9 @@ abstract contract BaseDynamicFeeManager is
         emit PancakePairBusdUpdated(value);
     }
 
-    function setPancakePairBnbAddress(address value)
-        external
-        override
-        onlyRole(ADMIN)
-    {
+    function setPancakePairBnbAddress(
+        address value
+    ) external override onlyRole(ADMIN) {
         require(
             value != address(0),
             "DynamicFeeManager: Cannot set BNB pair to zero address"
@@ -335,11 +318,10 @@ abstract contract BaseDynamicFeeManager is
      *
      * @return tokenSwapped uint256 - Amount of token which have been swapped
      */
-    function _swapAndLiquify(uint256 amount, address destination)
-        internal
-        nonReentrant
-        returns (uint256 tokenSwapped)
-    {
+    function _swapAndLiquify(
+        uint256 amount,
+        address destination
+    ) internal nonReentrant returns (uint256 tokenSwapped) {
         // split the contract balance into halves
         uint256 half = amount / 2;
         uint256 otherHalf = amount - half;
@@ -401,10 +383,10 @@ abstract contract BaseDynamicFeeManager is
      * @param amount uint256 - Amount to use
      * @param destination address - Destination address for BUSD
      */
-    function _swapTokensForBusd(uint256 amount, address destination)
-        internal
-        nonReentrant
-    {
+    function _swapTokensForBusd(
+        uint256 amount,
+        address destination
+    ) internal nonReentrant {
         // generate the uniswap pair path of token -> wbnb
         address[] memory path = new address[](2);
         path[0] = address(token());
@@ -521,5 +503,20 @@ abstract contract BaseDynamicFeeManager is
         }
 
         return percentualAmount;
+    }
+
+    /**
+     * Checks if the given address is a contract or not
+     *
+     * @param addr address - Address to check
+     *
+     * @return isContract bool - Indicator, if checked address is a contract
+     */
+    function _isContract(address addr) internal view returns (bool isContract) {
+        uint256 size;
+        assembly {
+            size := extcodesize(addr)
+        }
+        return size > 0;
     }
 }

@@ -18,45 +18,31 @@ contract StakingPool is BaseStakingPool {
         uint256 amount,
         uint256 duration,
         bool enableAutoCompounding
-    ) public nonReentrant returns (uint256 value) {
-        require(
-            duration >= minDuration() && duration <= maxDuration(),
-            "Staking Pool: Invalid staking duration"
-        );
+    ) public onlyUnpaused nonReentrant returns (uint256 value) {
+        // Validate inputs
+        _validateStakingDuration(duration);
+        _validateStakingAmount(amount);
 
-        // TODO: handle missing approve
-
-        require(
-            stakeToken().transferFrom(_msgSender(), address(this), amount),
-            "Staking Pool: Failed to transfer token"
-        );
-        _totalTokenLocked += amount;
-
-        // TODO: check duration only weeks
-
-        // Trigger pool update
+        // Trigger pool update to make sure _accRewardsPerShare is up-to-date
         updatePool();
 
+        // Calculate shares multiplier based on max. APY / APR
         uint256 multiplier;
-
-        // TODO: add check for max. pool allocation
-        // TODO: add anti-whale protection
         if (enableAutoCompounding) {
             multiplier = apy(duration, 100 ether);
         } else {
             multiplier = apr(duration, 100 ether);
         }
 
-        // uint256 totalShares = (((amount * multiplier) / 1e5) - amount) / 1e18;
-
-        uint256 totalRewards = ((amount * multiplier) / 1e5) - amount;
-        _allocatedPoolRewards += totalRewards;
-
         // Calculate pool shares for staking entry
-        uint256 totalShares = (amount * multiplier) / 1e5 / 1e18;
-        _allocatedPoolShares += totalShares;
+        uint256 totalShares = (amount * multiplier) / 1e23;
 
-        // Calculate initial reward debt (see PancakeSwap staking for futher explaination)
+        // Update global pool state
+        _allocatedPoolShares += totalShares;
+        _totalDurationLocked += duration * SECONDS_PER_DAY;
+        _totalTokenLocked += amount;
+
+        // Calculate initial reward debt (similar to PancakeSwap staking / farms)
         uint256 rewardDebt = totalShares * _accRewardsPerShare;
 
         // Create pool entry
@@ -66,15 +52,17 @@ contract StakingPool is BaseStakingPool {
             totalShares,
             rewardDebt,
             0,
-            0,
             block.timestamp,
-            block.number,
+            block.timestamp,
+            false,
             enableAutoCompounding
         );
 
-        // Mint reward NFT
+        // Mint staking reward NFT
         // TODO: add NFT metadata
         uint256 tokenId = rewardToken().mint(_msgSender());
+
+        // Set pool enty
         _poolEntries[tokenId] = entry;
 
         return tokenId;
@@ -82,8 +70,15 @@ contract StakingPool is BaseStakingPool {
 
     function unstake(
         uint256 tokenId
-    ) public onlyTokenOwner(tokenId) nonReentrant {
+    ) public onlyUnpaused onlyTokenOwner(tokenId) nonReentrant {
+        // Get pool entry
         PoolEntry memory entry = poolEntry(tokenId);
+
+        // Check if already unstaked
+        require(
+            !entry.isUnstaked,
+            "Staking Pool: Staking entry was already unstaked"
+        );
 
         // Check for staking lock period
         require(
@@ -95,16 +90,18 @@ contract StakingPool is BaseStakingPool {
         // Force rewards payout
         claimRewards(tokenId);
 
-        // Transfer initial stake amount
+        // Flag entry as unstaked
+        _poolEntries[tokenId].isUnstaked = true;
+
+        // Transfer initial stake amount back to sender
         require(
             stakeToken().transfer(_msgSender(), entry.amount),
             "Staking Pool: Failed to transfer initial stake"
         );
 
+        // Update global pool state
         _allocatedPoolShares -= entry.shares;
-
-        // TODO: remove from allocated rewards
-
+        _totalDurationLocked -= entry.duration * SECONDS_PER_DAY;
         _totalTokenLocked -= entry.amount;
 
         // Trigger pool update
@@ -113,82 +110,94 @@ contract StakingPool is BaseStakingPool {
 
     function claimRewards(
         uint256 tokenId
-    ) public onlyTokenOwner(tokenId) nonReentrant {
+    ) public onlyUnpaused onlyTokenOwner(tokenId) nonReentrant {
+        // Get pool entry
         PoolEntry memory entry = poolEntry(tokenId);
 
+        // Check if already unstaked
         require(
-            !entry.isAutoCompoundingEnabled,
-            "Staking Pool: Cannot claim rewards if auto-compounding is enabled"
+            entry.isUnstaked == false,
+            "Staking Pool: Staking entry was already unstaked"
         );
 
-        require(
-            block.timestamp >= (entry.lastClaimedAt + (12 * SECONDS_PER_HOUR)),
-            "Staking Pool: Already claimed within last 12 hours"
-        );
+        if (entry.isAutoCompoundingEnabled) {
+            // Staking with auto-compounding, check if end is reached
+            require(
+                block.timestamp >=
+                    (entry.startedAt + (entry.duration * SECONDS_PER_DAY)),
+                "Staking Pool: Cannot claim before staking end"
+            );
+        } else {
+            // Staking without auto-compounding, check for claiming interval
+            require(
+                block.timestamp >=
+                    (entry.lastClaimedAt + rewardsClaimInterval()),
+                "Staking Pool: Already claimed within claiming interval"
+            );
+        }
 
+        // Calculate claimable rewards
         uint256 rewards = pendingRewards(tokenId);
         require(rewards > 0, "Staking Pool: No rewards available to claim");
 
-        // TODO: remove from allocated rewards
-
+        // Transfer rewards to sender
         require(
             stakeToken().transfer(_msgSender(), rewards),
             "Staking Pool: Failed to transfer rewards"
         );
 
-        // TODO: is this working?
-        entry.claimedRewards += rewards;
-        entry.lastClaimedAt = block.timestamp;
+        // Update global pool state
+        _totalDurationLocked -= block.timestamp - entry.startedAt;
+
+        // Update staking entry
+        _poolEntries[tokenId].claimedRewards += rewards;
+        _poolEntries[tokenId].lastClaimedAt = block.timestamp;
+
+        // Trigger pool update
+        updatePool();
     }
 
     function pendingRewards(
         uint256 tokenId
     ) public view returns (uint256 value) {
+        // Get pool entry
         PoolEntry memory entry = poolEntry(tokenId);
 
+        // Calculate rewards based on shares
         uint256 rewards;
-        if (block.number > lastRewardBlock()) {
-            // If lastRewardBlock is in the past, calculate new values here
-            rewards = entry.shares * _calculateAccRewardsPerShare();
+        if (block.timestamp > lastRewardTimestamp()) {
+            // If lastRewardTimestamp is in the past, calculate new values here
+            rewards =
+                entry.shares *
+                _calculateAccRewardsPerShareCustom(poolFactor(poolBalance()));
         } else {
             // If we've just updated, use static values here
             rewards = entry.shares * _accRewardsPerShare;
         }
 
-        uint256 endBlock = entry.startBlock + 10373685;
-        if (block.number > endBlock + 1) {
-            console.log("Current Rewards: ", rewards);
-            console.log("Current Block: ", block.number);
-            (
-                uint256 accRewardsPerShareId,
-                uint256 accRewardsPerShareSnapshot
-            ) = _accRewardsPerShareAt(endBlock);
-            console.log(
-                "accRewardsPerShare snapshot value: ",
-                accRewardsPerShareSnapshot,
-                " at block: ",
-                accRewardsPerShareId
-            );
+        // If we're exceeding staking duration, calculate rewards using
+        // snapshot values around entry end timestamp and calculate
+        // partial rewards.
+        uint256 durationInSeconds = entry.duration * SECONDS_PER_DAY;
+        uint256 endTimestamp = entry.startedAt + durationInSeconds;
+        if (
+            durationInSeconds >= SECONDS_PER_DAY * maxDuration() &&
+            block.timestamp > endTimestamp
+        ) {
+            // Calculate historic rewards
+            rewards = _calculateHistoricRewards(entry.shares, endTimestamp);
 
-            (, uint256 poolFactorSnapshot) = _poolFactorAt(endBlock);
+            /**uint256 secondsSinceStart = block.timestamp - entry.startedAt;
+            uint256 partialRewards = (rewards * durationInSeconds) /
+                secondsSinceStart;
 
-            uint256 elapsedRewards = _calculateAccRewardsPerShare(
-                block.number - endBlock - 1,
-                poolFactorSnapshot
-            );
-
-            console.log("Elapsed Blocks: ", block.number - endBlock);
-            console.log("Elapsed Rewards: ", entry.shares * elapsedRewards);
-
-            rewards -= (entry.shares * elapsedRewards);
-
-            console.log("New Rewards: ", rewards);
+            rewards = partialRewards;*/
         }
 
         // Subtract reward debt from rewards
         uint256 totalRewards = rewards - entry.rewardDebt;
 
-        // Calculate pool rewards fee
+        // Calculate pool rewards fees
         uint256 fee = (totalRewards * 3) / 100;
 
         // Return pending rewards without fee and claimed rewards
@@ -197,31 +206,33 @@ contract StakingPool is BaseStakingPool {
 
     function updatePool() public {
         // We've already updated this block
-        if (lastRewardBlock() >= block.number) {
+        if (lastRewardTimestamp() >= block.timestamp) {
             return;
         }
 
-        // No one is currently staking, skipping update...
+        // No one is currently staking, skipping update
         if (allocatedPoolShares() == 0) {
-            _lastRewardBlock = block.number;
+            _lastRewardTimestamp = block.timestamp;
             return;
         }
 
-        // TODO: no rewards if pool is empty
+        // TODO: handle empty pool
 
-        // Calculate rewards per share
+        // Calculate global rewards per share
         _accRewardsPerShare = _calculateAccRewardsPerShare();
 
-        _updateSnapshot(_accRewardsPerShareSnapshots, _accRewardsPerShare);
-
-        // Update pool factor
+        // Calculate global pool factor
         _currentPoolFactor = poolFactor(poolBalance());
 
-        _updateSnapshot(_poolFactorSnapshots, _currentPoolFactor);
-
-        _snapshot();
-
         // Update last reward block
-        _lastRewardBlock = block.number;
+        _lastRewardTimestamp = block.timestamp;
+
+        // Save values for snapshot
+        _updateSnapshot(_accRewardsPerShareSnapshots, _accRewardsPerShare);
+        _updateSnapshot(_currentPoolFactorSnapshots, currentPoolFactor());
+        _updateSnapshot(_lastRewardTimestampSnapshots, lastRewardTimestamp());
+
+        // Execute snapshot
+        _snapshot();
     }
 }

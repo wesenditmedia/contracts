@@ -24,7 +24,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         address to,
         uint256 percentage,
         address destination,
-        bool doCallback,
+        bool excludeContracts,
         bool doLiquify,
         bool doSwapForBusd,
         uint256 swapOrLiquifyAmount,
@@ -56,7 +56,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             to,
             percentage,
             destination,
-            doCallback,
+            excludeContracts,
             doLiquify,
             doSwapForBusd,
             swapOrLiquifyAmount,
@@ -71,7 +71,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             to,
             percentage,
             destination,
-            doCallback,
+            excludeContracts,
             doLiquify,
             doSwapForBusd,
             swapOrLiquifyAmount,
@@ -235,20 +235,6 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             feesEnabled_ = true;
         }
 
-        // Check if callback should be called on destination
-        if (fee.doCallback && !fee.doSwapForBusd && !fee.doLiquify) {
-            // Try to call onERC20Received on destination and ignore reverts here
-            try
-                IFeeReceiver(fee.destination).onERC20Received(
-                    address(this),
-                    address(token()),
-                    from,
-                    to,
-                    tFee
-                )
-            {} catch (bytes memory) {}
-        }
-
         emit FeeReflected(
             fee.id,
             address(token()),
@@ -256,7 +242,7 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
             to,
             tFee,
             fee.destination,
-            fee.doCallback,
+            fee.excludeContracts,
             fee.doLiquify,
             fee.doSwapForBusd,
             fee.swapOrLiquifyAmount,
@@ -292,10 +278,11 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         address to
     ) private view returns (bool matching) {
         return
-            (fee.from == WHITELIST_ADDRESS &&
+            ((fee.from == WHITELIST_ADDRESS &&
                 fee.to == WHITELIST_ADDRESS &&
                 !hasRole(EXCLUDE_WILDCARD_FEE, from) &&
-                !hasRole(EXCLUDE_WILDCARD_FEE, to)) ||
+                !hasRole(EXCLUDE_WILDCARD_FEE, to)) &&
+                !(fee.excludeContracts && _isContract(from))) ||
             (fee.from == from &&
                 fee.to == WHITELIST_ADDRESS &&
                 !hasRole(EXCLUDE_WILDCARD_FEE, to)) ||

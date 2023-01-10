@@ -89,7 +89,7 @@ describe.only("StakingPool", function () {
   let contract: StakingPool
 
   let mockWsi: MockContract<WeSenditToken>
-  let mockRewardToken: MockContract<WeStakeitToken>
+  let mockProofToken: MockContract<WeStakeitToken>
 
   let owner: SignerWithAddress
   let alice: SignerWithAddress
@@ -103,12 +103,12 @@ describe.only("StakingPool", function () {
     mockWsi = await WeSenditToken.deploy(owner.address)
 
     const WeStakeitToken = await smock.mock<WeStakeitToken__factory>('WeStakeitToken')
-    mockRewardToken = await WeStakeitToken.deploy()
+    mockProofToken = await WeStakeitToken.deploy()
 
     const StakingPool = await ethers.getContractFactory("StakingPool")
-    contract = await StakingPool.deploy(mockWsi.address, mockRewardToken.address)
+    contract = await StakingPool.deploy(mockWsi.address, mockProofToken.address)
 
-    await mockRewardToken.transferOwnership(contract.address)
+    await mockProofToken.transferOwnership(contract.address)
     await mockWsi.unpause()
     await mockWsi.transfer(contract.address, INITIAL_POOL_BALANCE)
     await mockWsi.transfer(alice.address, parseEther('10000000'))
@@ -337,8 +337,8 @@ describe.only("StakingPool", function () {
         expect(poolEntry.startBlock).to.equal(await getBlockNumber())
         expect(poolEntry.isAutoCompoundingEnabled).to.equal(entry.isAutoCompoundingEnabled)
 
-        expect(await mockRewardToken.balanceOf(owner.address)).to.equal(1)
-        expect(await mockRewardToken.ownerOf(0)).to.equal(owner.address)
+        expect(await mockProofToken.balanceOf(owner.address)).to.equal(1)
+        expect(await mockProofToken.ownerOf(0)).to.equal(owner.address)
 
         expect(await contract.pendingRewards(0)).to.equal(0)
 
@@ -1497,8 +1497,8 @@ describe.only("StakingPool", function () {
       )).not.to.be.reverted
 
       // Assert
-      expect(await mockRewardToken.balanceOf(alice.address)).to.equal(1)
-      expect(await mockRewardToken.ownerOf(0)).to.equal(alice.address)
+      expect(await mockProofToken.balanceOf(alice.address)).to.equal(1)
+      expect(await mockProofToken.ownerOf(0)).to.equal(alice.address)
 
       const entry = await contract.poolEntry(0)
       expect(entry).to.have.length(9)
@@ -1527,8 +1527,8 @@ describe.only("StakingPool", function () {
       )).not.to.be.reverted
 
       // Assert
-      expect(await mockRewardToken.balanceOf(alice.address)).to.equal(1)
-      expect(await mockRewardToken.ownerOf(0)).to.equal(alice.address)
+      expect(await mockProofToken.balanceOf(alice.address)).to.equal(1)
+      expect(await mockProofToken.ownerOf(0)).to.equal(alice.address)
 
       const entry = await contract.poolEntry(0)
       expect(entry).to.have.length(9)
@@ -1559,9 +1559,9 @@ describe.only("StakingPool", function () {
       }
 
       // Assert
-      expect(await mockRewardToken.balanceOf(alice.address)).to.equal(2)
-      expect(await mockRewardToken.ownerOf(0)).to.equal(alice.address)
-      expect(await mockRewardToken.ownerOf(1)).to.equal(alice.address)
+      expect(await mockProofToken.balanceOf(alice.address)).to.equal(2)
+      expect(await mockProofToken.ownerOf(0)).to.equal(alice.address)
+      expect(await mockProofToken.ownerOf(1)).to.equal(alice.address)
 
       const firstEntry = await contract.poolEntry(0)
       expect(firstEntry).to.have.length(9)
@@ -1588,9 +1588,9 @@ describe.only("StakingPool", function () {
       }
 
       // Assert
-      expect(await mockRewardToken.balanceOf(alice.address)).to.equal(2)
-      expect(await mockRewardToken.ownerOf(0)).to.equal(alice.address)
-      expect(await mockRewardToken.ownerOf(1)).to.equal(alice.address)
+      expect(await mockProofToken.balanceOf(alice.address)).to.equal(2)
+      expect(await mockProofToken.ownerOf(0)).to.equal(alice.address)
+      expect(await mockProofToken.ownerOf(1)).to.equal(alice.address)
 
       const firstEntry = await contract.poolEntry(0)
       expect(firstEntry).to.have.length(9)

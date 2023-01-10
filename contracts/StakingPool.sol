@@ -11,8 +11,8 @@ import "./BaseStakingPool.sol";
 contract StakingPool is BaseStakingPool {
     constructor(
         address stakeTokenAddress,
-        address rewardTokenAddress
-    ) BaseStakingPool(stakeTokenAddress, rewardTokenAddress) {}
+        address proofTokenAddress
+    ) BaseStakingPool(stakeTokenAddress, proofTokenAddress) {}
 
     function stake(
         uint256 amount,
@@ -65,7 +65,7 @@ contract StakingPool is BaseStakingPool {
 
         // Mint staking reward NFT
         // TODO: add NFT metadata
-        uint256 tokenId = rewardToken().mint(_msgSender());
+        uint256 tokenId = proofToken().mint(_msgSender());
 
         // Set pool enty
         _poolEntries[tokenId] = entry;
@@ -258,7 +258,7 @@ contract StakingPool is BaseStakingPool {
     /**
      * Claims rewards for the given entry
      *
-     * @param tokenId uint256 - Reward token ID
+     * @param tokenId uint256 - Proof token ID
      *
      * @return claimedRewards uint256 - Amount of rewards claimed
      */

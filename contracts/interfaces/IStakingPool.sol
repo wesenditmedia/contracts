@@ -32,7 +32,7 @@ interface IStakingPool {
     /**
      * Emitted when entering the staking pool
      *
-     * @param tokenId uint256 - Reward token ID
+     * @param tokenId uint256 - Proof token ID
      * @param amount uint256 - Initial amount of staked token
      * @param duration uint256 - Stake lock duration (in days)
      * @param shares uint256 - Amount of pool shares
@@ -50,7 +50,7 @@ interface IStakingPool {
     /**
      * Emitted when leaving the staking pool
      *
-     * @param tokenId uint256 - Reward token ID
+     * @param tokenId uint256 - Proof token ID
      * @param amount uint256 - Initial amount of staked token
      * @param duration uint256 - Stake lock duration (in days)
      * @param shares uint256 - Amount of pool shares
@@ -68,7 +68,7 @@ interface IStakingPool {
     /**
      * Emitted when entering the staking pool
      *
-     * @param tokenId uint256 - Reward token ID
+     * @param tokenId uint256 - Proof token ID
      * @param claimedRewards uint256 - Amount of rewards claimed
      *
      */
@@ -199,7 +199,7 @@ interface IStakingPool {
      *
      * @return value IWeStakeitToken - Token "instance" used for rewards
      */
-    function rewardToken() external view returns (IWeStakeitToken value);
+    function proofToken() external view returns (IWeStakeitToken value);
 
     /**
      * Staking pool balance without locked token and allocated rewards
@@ -313,7 +313,7 @@ interface IStakingPool {
      * @param duration uint256 - Staking duration in days
      * @param enableAutoCompounding bool - Indicator, if auto compounding should be used
      *
-     * @return tokenId uint256 - Reward token ID
+     * @return tokenId uint256 - Proof token ID
      */
     function stake(
         uint256 amount,
@@ -324,21 +324,21 @@ interface IStakingPool {
     /**
      * Unstakes staking entry
      *
-     * @param tokenId uint256 - Reward token ID
+     * @param tokenId uint256 - Proof token ID
      */
     function unstake(uint256 tokenId) external;
 
     /**
      * Claim rewards for given staking entry
      *
-     * @param tokenId uint256 - Reward token ID
+     * @param tokenId uint256 - Proof token ID
      */
     function claimRewards(uint256 tokenId) external;
 
     /**
      * Return pending / claimable rewards for staking entry
      *
-     * @param tokenId uint256 - Reward token ID
+     * @param tokenId uint256 - Proof token ID
      */
     function pendingRewards(
         uint256 tokenId

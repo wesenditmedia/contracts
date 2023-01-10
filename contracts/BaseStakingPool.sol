@@ -64,20 +64,20 @@ abstract contract BaseStakingPool is
     // Token used for staking
     IERC20 private _stakeToken = IERC20(address(0));
 
-    // Token used as staking reward
-    IWeStakeitToken private _rewardToken = IWeStakeitToken(address(0));
+    // Token used as staking proof
+    IWeStakeitToken private _proofToken = IWeStakeitToken(address(0));
 
-    // Mapping of reward token to staking entry
+    // Mapping of proof token to staking entry
     mapping(uint256 => PoolEntry) internal _poolEntries;
 
     /**
      * Checks if tokenId owner equals sender
      *
-     * @param tokenId uint256 - Reward token ID
+     * @param tokenId uint256 - Proof token ID
      */
     modifier onlyTokenOwner(uint256 tokenId) {
         require(
-            rewardToken().ownerOf(tokenId) == _msgSender(),
+            proofToken().ownerOf(tokenId) == _msgSender(),
             "Staking Pool: Caller is not entry owner"
         );
         _;
@@ -94,9 +94,9 @@ abstract contract BaseStakingPool is
         _;
     }
 
-    constructor(address stakeTokenAddress, address rewardTokenAddress) {
+    constructor(address stakeTokenAddress, address proofTokenAddress) {
         _stakeToken = IERC20(stakeTokenAddress);
-        _rewardToken = IWeStakeitToken(rewardTokenAddress);
+        _proofToken = IWeStakeitToken(proofTokenAddress);
     }
 
     // Emergency functions
@@ -181,8 +181,8 @@ abstract contract BaseStakingPool is
         return _stakeToken;
     }
 
-    function rewardToken() public view returns (IWeStakeitToken value) {
-        return _rewardToken;
+    function proofToken() public view returns (IWeStakeitToken value) {
+        return _proofToken;
     }
 
     function poolBalance() public view returns (uint256 value) {

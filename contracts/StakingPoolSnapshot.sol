@@ -17,7 +17,6 @@ struct Snapshots {
     uint256[] values;
 }
 
-// TODO: add comments
 abstract contract StakingPoolSnapshot {
     using Arrays for uint256[];
     using Counters for Counters.Counter;
@@ -25,19 +24,25 @@ abstract contract StakingPoolSnapshot {
     // Snapshots for _accRewardsPerShare
     Snapshots internal _accRewardsPerShareSnapshots;
 
-    // Snapshots for _currentPoolFactor
-    Snapshots internal _currentPoolFactorSnapshots;
-
     // Snapshots for _lastRewardTimestamp
     Snapshots internal _lastRewardTimestampSnapshots;
 
     // Current snapshot id
     Counters.Counter private _currentSnapshotId;
 
+    /**
+     * Returns accRewardsPerShare at best matching snapshot
+     *
+     * @param snapshotId uint256 - Snapshot ID / block timestamp to look for
+     * @param currentValue uint256 - Current value used as fallback
+     *
+     * @return snapshotId_ uint256 - Best matching snapshot ID
+     * @return snapshotValue uint256 - Value at the snapshot or fallback value, if no snapshot was found
+     */
     function _accRewardsPerShareAt(
         uint256 snapshotId,
         uint256 currentValue
-    ) internal view virtual returns (uint256, uint256) {
+    ) internal view returns (uint256 snapshotId_, uint256 snapshotValue) {
         (bool snapshotted, uint256 id, uint256 value) = _valueAt(
             snapshotId,
             _accRewardsPerShareSnapshots
@@ -46,22 +51,19 @@ abstract contract StakingPoolSnapshot {
         return (id, snapshotted ? value : currentValue);
     }
 
-    function _currentPoolFactorAt(
-        uint256 snapshotId,
-        uint256 currentValue
-    ) internal view virtual returns (uint256, uint256) {
-        (bool snapshotted, uint256 id, uint256 value) = _valueAt(
-            snapshotId,
-            _currentPoolFactorSnapshots
-        );
-
-        return (id, snapshotted ? value : currentValue);
-    }
-
+    /**
+     * Returns lastRewardTimestamp at best matching snapshot
+     *
+     * @param snapshotId uint256 - Snapshot ID / block timestamp to look for
+     * @param currentValue uint256 - Current value used as fallback
+     *
+     * @return snapshotId_ uint256 - Best matching snapshot ID
+     * @return snapshotValue uint256 - Value at the snapshot or fallback value, if no snapshot was found
+     */
     function _lastRewardTimestampAt(
         uint256 snapshotId,
         uint256 currentValue
-    ) internal view virtual returns (uint256, uint256) {
+    ) internal view returns (uint256 snapshotId_, uint256 snapshotValue) {
         (bool snapshotted, uint256 id, uint256 value) = _valueAt(
             snapshotId,
             _lastRewardTimestampSnapshots
@@ -70,17 +72,22 @@ abstract contract StakingPoolSnapshot {
         return (id, snapshotted ? value : currentValue);
     }
 
-    function _snapshot() internal virtual returns (uint256) {
+    /**
+     * Triggers a snapshot for current snapshot ID
+     */
+    function _snapshot() internal returns (uint256) {
         _currentSnapshotId.increment();
 
         uint256 currentId = _getCurrentSnapshotId();
         return currentId;
     }
 
-    function _getCurrentSnapshotId() internal view virtual returns (uint256) {
-        return block.timestamp;
-    }
-
+    /**
+     * Updates the current "in-work" snapshot
+     *
+     * @param snapshots Snapshots - Snapshots struct / object to update
+     * @param currentValue uint256 - New value
+     */
     function _updateSnapshot(
         Snapshots storage snapshots,
         uint256 currentValue
@@ -92,6 +99,18 @@ abstract contract StakingPoolSnapshot {
         }
     }
 
+    /**
+     * Current snapshot ID
+     */
+    function _getCurrentSnapshotId() private view returns (uint256) {
+        return block.timestamp;
+    }
+
+    /**
+     * Last snapshot ID for given array
+     *
+     * @param ids uint256[] - List of snapshot IDs
+     */
     function _lastSnapshotId(
         uint256[] storage ids
     ) private view returns (uint256) {
@@ -102,10 +121,24 @@ abstract contract StakingPoolSnapshot {
         }
     }
 
+    /**
+     * Returns the value at best matching snapshot
+     *
+     * @param snapshotId uint256 - Snapshot ID / block timestamp to look for
+     * @param snapshots Snapshots - Snapshots struct / object
+     *
+     * @return snapshotFound bool - Indicator, if snapshot was available for the given ID
+     * @return snapshotId_ uint256 - Best matching snapshot ID
+     * @return snapshotValue uint256 - Value at the snapshot or fallback value, if no snapshot was found
+     */
     function _valueAt(
         uint256 snapshotId,
         Snapshots storage snapshots
-    ) private view returns (bool, uint256, uint256) {
+    )
+        private
+        view
+        returns (bool snapshotFound, uint256 snapshotId_, uint256 snapshotValue)
+    {
         require(snapshotId > 0, "Staking Pool Snapshot: id is 0");
         require(
             snapshotId <= _getCurrentSnapshotId(),

@@ -41,7 +41,7 @@ abstract contract BaseStakingPool is
     uint256 internal constant SECONDS_PER_HOUR = 3600;
 
     // Claiming interval for non auto-compounding rewards
-    uint256 internal _rewardsClaimInterval = 36 * SECONDS_PER_DAY;
+    uint256 internal _rewardsClaimInterval = 3 * SECONDS_PER_DAY;
 
     // Indicator, if pool is paused (no stake, no unstake, no claim)
     bool internal _poolPaused = false;
@@ -61,9 +61,6 @@ abstract contract BaseStakingPool is
     // Total amount of locked token (excluding rewards)
     uint256 internal _totalTokenLocked;
 
-    // Total sum of staking durations
-    uint256 internal _totalDurationLocked;
-
     // Token used for staking
     IERC20 private _stakeToken = IERC20(address(0));
 
@@ -73,7 +70,11 @@ abstract contract BaseStakingPool is
     // Mapping of reward token to staking entry
     mapping(uint256 => PoolEntry) internal _poolEntries;
 
-    // Checks if tokenId owner equals sender
+    /**
+     * Checks if tokenId owner equals sender
+     *
+     * @param tokenId uint256 - Reward token ID
+     */
     modifier onlyTokenOwner(uint256 tokenId) {
         require(
             rewardToken().ownerOf(tokenId) == _msgSender(),
@@ -82,6 +83,9 @@ abstract contract BaseStakingPool is
         _;
     }
 
+    /**
+     * Checks if pool is paused
+     */
     modifier onlyUnpaused() {
         require(
             !poolPaused(),
@@ -95,12 +99,36 @@ abstract contract BaseStakingPool is
         _rewardToken = IWeStakeitToken(rewardTokenAddress);
     }
 
+    // Emergency functions
+    function emergencyWithdraw(uint256 amount) external override onlyOwner {
+        super._emergencyWithdraw(amount);
+    }
+
+    function emergencyWithdrawToken(
+        address token,
+        uint256 amount
+    ) external override onlyOwner {
+        super._emergencyWithdrawToken(token, amount);
+    }
+
     function setRewardsClaimInterval(uint256 value) external onlyOwner {
         _rewardsClaimInterval = value;
     }
 
     function setPoolPaused(bool value) external onlyOwner {
         _poolPaused = value;
+    }
+
+    function setAllocatedPoolShares(uint256 value) external onlyOwner {
+        _allocatedPoolShares = value;
+    }
+
+    function apy(uint256 duration) external view returns (uint256 value) {
+        return apy(duration, poolFactor(poolBalance()));
+    }
+
+    function apr(uint256 duration) external view returns (uint256 value) {
+        return apr(duration, poolFactor(poolBalance()));
     }
 
     function rewardsClaimInterval() public view returns (uint256 value) {
@@ -162,14 +190,14 @@ abstract contract BaseStakingPool is
     }
 
     function poolBalance(
-        uint256 customPoolFactor
+        uint256 poolFactor_
     ) public view returns (uint256 value) {
         // Get current pool balance
         uint256 tokenBalance = stakeToken().balanceOf(address(this));
 
         // Calculate all rewards paid or are claimable until now
         uint256 rewardDebt = allocatedPoolShares() *
-            _calculateAccRewardsPerShareCustom(customPoolFactor);
+            _calculateAccRewardsPerShare(poolFactor_);
 
         // Subtract locked token and rewardDebt from actual pool balance
         return tokenBalance - totalTokenLocked() - rewardDebt;
@@ -179,10 +207,6 @@ abstract contract BaseStakingPool is
         uint256 tokenId
     ) public view returns (PoolEntry memory entry) {
         return _poolEntries[tokenId];
-    }
-
-    function apy(uint256 duration) public view returns (uint256 value) {
-        return apy(duration, poolFactor(poolBalance()));
     }
 
     function apy(
@@ -198,10 +222,6 @@ abstract contract BaseStakingPool is
             );
     }
 
-    function apr(uint256 duration) public view returns (uint256 value) {
-        return apr(duration, poolFactor(poolBalance()));
-    }
-
     function apr(
         uint256 duration,
         uint256 factor
@@ -210,7 +230,7 @@ abstract contract BaseStakingPool is
     }
 
     function poolFactor() public view returns (uint256 value) {
-        return WeSenditMath.poolFactor(poolBalance());
+        return poolFactor(poolBalance());
     }
 
     function poolFactor(uint256 balance) public pure returns (uint256 value) {
@@ -219,92 +239,54 @@ abstract contract BaseStakingPool is
 
     function accRewardsPerShareAt(
         uint256 snapshotId
-    ) public view virtual returns (uint256, uint256) {
+    ) public view returns (uint256 snapshotId_, uint256 snapshotValue) {
         return _accRewardsPerShareAt(snapshotId, accRewardsPerShare());
-    }
-
-    function currentPoolFactorAt(
-        uint256 snapshotId
-    ) public view virtual returns (uint256, uint256) {
-        return _currentPoolFactorAt(snapshotId, currentPoolFactor());
     }
 
     function lastRewardTimestampAt(
         uint256 snapshotId
-    ) public view virtual returns (uint256, uint256) {
+    ) public view returns (uint256 snapshotId_, uint256 snapshotValue) {
         return _lastRewardTimestampAt(snapshotId, lastRewardTimestamp());
     }
 
+    function maxStakingAmount() public view returns (uint256 value) {
+        return _calculateMaxStakingAmount();
+    }
+
+    /**
+     * Calculates accured rewards per share
+     *
+     * @return accRewardsPerShare_ uint256 - Accured rewards per share for given parameter
+     */
     function _calculateAccRewardsPerShare()
         internal
         view
-        returns (uint256 accRewardsPerShare)
+        returns (uint256 accRewardsPerShare_)
     {
         return
             _calculateAccRewardsPerShare(
                 lastRewardTimestamp(),
                 currentPoolFactor(),
-                _accRewardsPerShare
+                accRewardsPerShare()
             );
     }
 
-    function _calculateAccRewardsPerShareCustom(
-        uint256 customPoolFactor
-    ) internal view returns (uint256 accRewardsPerShare) {
+    /**
+     * Calculates accured rewards per share
+     *
+     * @param poolFactor_ uint256 - Pool factor
+     *
+     * @return accRewardsPerShare_ uint256 - Accured rewards per share for given parameter
+     */
+    function _calculateAccRewardsPerShare(
+        uint256 poolFactor_
+    ) internal view returns (uint256 accRewardsPerShare_) {
         return
             _calculateAccRewardsPerShare(
                 lastRewardTimestamp(),
-                customPoolFactor,
-                _accRewardsPerShare
+                poolFactor_,
+                accRewardsPerShare()
             );
-    }
-
-    function _calculateAccRewardsPerShare(
-        uint256 customSecondsSinceLastRewards
-    ) internal view returns (uint256 accRewardsPerShare) {
-        // Calculate total rewards since lastRewardTimestamp
-        uint256 totalRewards = customSecondsSinceLastRewards * TOKEN_PER_SECOND;
-
-        // Multiply rewards with pool factor
-        uint256 currentRewards = (totalRewards * currentPoolFactor()) /
-            100 ether;
-
-        // Calculate rewards per share
-        return currentRewards / totalPoolShares();
-    }
-
-    function _calculateAccRewardsPerShare(
-        uint256 customLastRewardTimestamp,
-        uint256 customPoolFactor,
-        uint256 customAccRewardsPerShare
-    ) internal view returns (uint256 accRewardsPerShare) {
-        // Calculate seconds elapsed since last reward update
-        uint256 secondsSinceLastRewards = block.timestamp -
-            customLastRewardTimestamp;
-
-        // Calculate total rewards since lastRewardTimestamp
-        uint256 totalRewards = secondsSinceLastRewards * TOKEN_PER_SECOND;
-
-        // Multiply rewards with pool factor
-        uint256 currentRewards = (totalRewards * customPoolFactor) / 100 ether;
-
-        // Calculate rewards per share
-        return customAccRewardsPerShare + (currentRewards / totalPoolShares());
-    }
-
-    function _calculateAccRewardsPerShareForSeconds(
-        uint256 customSecondsSinceLastRewards,
-        uint256 customPoolFactor,
-        uint256 customAccRewardsPerShare
-    ) internal pure returns (uint256 accRewardsPerShare) {
-        // Calculate total rewards since lastRewardTimestamp
-        uint256 totalRewards = customSecondsSinceLastRewards * TOKEN_PER_SECOND;
-
-        // Multiply rewards with pool factor
-        uint256 currentRewards = (totalRewards * customPoolFactor) / 100 ether;
-
-        // Calculate rewards per share
-        return customAccRewardsPerShare + (currentRewards / totalPoolShares());
     }
 
     /**
@@ -331,22 +313,134 @@ abstract contract BaseStakingPool is
      *
      * @param amount uint256 - Amount of token to stake
      */
-    function _validateStakingAmount(uint256 amount) internal {
+    function _validateStakingAmount(uint256 amount) internal view {
         // Important: check for max. staking amount before transferring token to pool
         require(
-            amount <= _calculateMaxStakingAmount(),
+            amount <= maxStakingAmount(),
             "Staking Pool: Max. staking amount exceeded"
         );
 
         // CHeck allowance
         uint256 allowance = stakeToken().allowance(_msgSender(), address(this));
         require(allowance >= amount, "Staking Pool: Amount exceeds allowance");
+    }
 
-        // Transfer token to pool
-        require(
-            stakeToken().transferFrom(_msgSender(), address(this), amount),
-            "Staking Pool: Failed to transfer token"
+    /**
+     * Calculates "historic" rewards if we're "out" of staking
+     *
+     * @param shares uint256 - Staking entry shares
+     * @param startTimestamp uint256 - Staking entry start timestamp
+     * @param endTimestamp uint256 - Staking entry end timestamp
+     *
+     * @return rewards uint256 - Available rewards
+     */
+    function _calculateHistoricRewards(
+        uint256 shares,
+        uint256 startTimestamp,
+        uint256 endTimestamp
+    ) internal view returns (uint256 rewards) {
+        // Get snapshot values
+        (, uint256 lastRewardTimestampSnapshot) = lastRewardTimestampAt(
+            endTimestamp
         );
+        (, uint256 accRewardsPerShareSnapshot) = accRewardsPerShareAt(
+            endTimestamp
+        );
+
+        if (lastRewardTimestampSnapshot > endTimestamp) {
+            // Pool update was triggered after staking end
+
+            // Calculate duration from staking start to snpashot
+            uint256 elapsedSinceStart = lastRewardTimestampSnapshot -
+                startTimestamp;
+
+            // Calculate staking entry duration
+            uint256 duration = endTimestamp - startTimestamp;
+
+            // Calculate rewards based on ratio
+            uint256 partialAccRewardsPerShare = (accRewardsPerShareSnapshot *
+                duration) / elapsedSinceStart;
+
+            // Calculate final rewards
+            return shares * partialAccRewardsPerShare;
+        } else {
+            // Pool update was trigger before staking end
+
+            // Calculate duration from lastRewardTimestampSnapshot to endTimestamp
+            uint256 duration = endTimestamp - lastRewardTimestampSnapshot;
+
+            // Calculate rewards using snapshot values and remaining duration
+            return
+                shares *
+                _calculateAccRewardsPerShareForDuration(
+                    duration,
+                    lastRewardTimestampSnapshot,
+                    accRewardsPerShareSnapshot
+                );
+        }
+    }
+
+    /**
+     * Calculates accured rewards per share
+     *
+     * @param lastRewardTimestamp_ uint256 - Last reward timestamp
+     * @param poolFactor_ uint256 - Pool factor
+     * @param initialAccRewardsPerShare_ uint256 - Initial accured rewards per share
+     *
+     * @return accRewardsPerShare_ uint256 - Accured rewards per share for given parameter
+     */
+    function _calculateAccRewardsPerShare(
+        uint256 lastRewardTimestamp_,
+        uint256 poolFactor_,
+        uint256 initialAccRewardsPerShare_
+    ) private view returns (uint256 accRewardsPerShare_) {
+        // Calculate seconds elapsed since last reward update
+        uint256 secondsSinceLastRewards = block.timestamp -
+            lastRewardTimestamp_;
+
+        // Calculate total rewards since lastRewardTimestamp
+        uint256 totalRewards = secondsSinceLastRewards * TOKEN_PER_SECOND;
+
+        // Multiply rewards with pool factor
+        uint256 currentRewards = (totalRewards * poolFactor_) / 100 ether;
+
+        // Calculate rewards per share
+        return
+            initialAccRewardsPerShare_ + (currentRewards / totalPoolShares());
+    }
+
+    /**
+     * Calculates accured rewards per share for custom duration
+     *
+     * @param duration uint256 - Duration to calculate rewards for
+     * @param lastRewardTimestamp_ uint256 - Last reward timestamp
+     * @param initialAccRewardsPerShare_ uint256 - Initial accured rewards per share
+     *
+     * @return accRewardsPerShare_ uint256 - Accured rewards per share for given parameter
+     */
+    function _calculateAccRewardsPerShareForDuration(
+        uint256 duration,
+        uint256 lastRewardTimestamp_,
+        uint256 initialAccRewardsPerShare_
+    ) private view returns (uint256 accRewardsPerShare_) {
+        // Calculate current rewards per shares
+        uint256 currentAccRewardsPerShare = _calculateAccRewardsPerShare(
+            lastRewardTimestamp(),
+            poolFactor(),
+            accRewardsPerShare()
+        );
+
+        // Calculate difference to "historic" rewards per share
+        uint256 futureAccRewardsPerShare = currentAccRewardsPerShare -
+            initialAccRewardsPerShare_;
+
+        // Calculate time difference between customLastRewardTimestamp and current block
+        uint256 diff = block.timestamp - lastRewardTimestamp_;
+
+        // Calculate rewards per share
+        return
+            initialAccRewardsPerShare_ +
+            ((futureAccRewardsPerShare * duration) / diff);
     }
 
     /**
@@ -355,7 +449,7 @@ abstract contract BaseStakingPool is
      * @return maxAmount uint256 - Max. amount of token allowed to stake
      */
     function _calculateMaxStakingAmount()
-        internal
+        private
         view
         returns (uint256 maxAmount)
     {
@@ -374,44 +468,5 @@ abstract contract BaseStakingPool is
             // to (1% * pool balance) token
             return (balance * 1) / 100;
         }
-    }
-
-    function _calculateHistoricRewards(
-        uint256 shares,
-        uint256 endTimestamp
-    ) internal view returns (uint256 rewards) {
-        // Get snapshot values
-        (, uint256 lastRewardTimestampSnapshot) = lastRewardTimestampAt(
-            endTimestamp
-        );
-        (, uint256 poolFactorSnapshot) = currentPoolFactorAt(endTimestamp);
-        (, uint256 accRewardsPerShareSnapshot) = accRewardsPerShareAt(
-            endTimestamp
-        );
-
-        // Calculate remaining duration until staking end
-        // TODO: handle negative values
-        uint256 durationDiff = endTimestamp - lastRewardTimestampSnapshot;
-
-        // Calculate rewards using snapshot values and remaining duration
-        return
-            shares *
-            _calculateAccRewardsPerShareForSeconds(
-                durationDiff,
-                poolFactorSnapshot,
-                accRewardsPerShareSnapshot
-            );
-    }
-
-    // Emergency functions
-    function emergencyWithdraw(uint256 amount) external override onlyOwner {
-        super._emergencyWithdraw(amount);
-    }
-
-    function emergencyWithdrawToken(
-        address token,
-        uint256 amount
-    ) external override onlyOwner {
-        super._emergencyWithdrawToken(token, amount);
     }
 }

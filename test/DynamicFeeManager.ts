@@ -2866,5 +2866,4 @@ describe("Dynamic Fee Manager", function () {
       })
     })
   })
-
 })

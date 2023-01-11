@@ -45,6 +45,7 @@ contract StakingPool is BaseStakingPool {
 
         // Update global pool state
         _allocatedPoolShares += totalShares;
+        _activeAllocatedPoolShares += totalShares;
         _totalTokenLocked += amount;
 
         // Calculate initial reward debt (similar to PancakeSwap staking / farms)
@@ -142,21 +143,13 @@ contract StakingPool is BaseStakingPool {
             "Staking Pool: Staking entry was already unstaked"
         );
 
-        if (entry.isAutoCompoundingEnabled) {
-            // Staking with auto-compounding, check if end is reached
-            require(
+        // Require entry either to be non auto-compounding or already ended
+        require(
+            !entry.isAutoCompoundingEnabled ||
                 block.timestamp >=
-                    (entry.startedAt + (entry.duration * SECONDS_PER_DAY)),
-                "Staking Pool: Cannot claim before staking end"
-            );
-        } else {
-            // Staking without auto-compounding, check for claiming interval
-            require(
-                block.timestamp >=
-                    (entry.lastClaimedAt + rewardsClaimInterval()),
-                "Staking Pool: Already claimed within claiming interval"
-            );
-        }
+                (entry.startedAt + (entry.duration * SECONDS_PER_DAY)),
+            "Staking Pool: Cannot claim before staking end"
+        );
 
         // Claim rewards if available
         uint256 claimedRewards = _claimRewards(tokenId);
@@ -202,6 +195,12 @@ contract StakingPool is BaseStakingPool {
         // partial rewards
         uint256 durationInSeconds = entry.duration * SECONDS_PER_DAY;
         uint256 endTimestamp = entry.startedAt + durationInSeconds;
+
+        // If we've already claimed after end, we've got all possible rewards
+        if (entry.lastClaimedAt >= endTimestamp) {
+            return 0;
+        }
+
         if (
             // durationInSeconds >= SECONDS_PER_DAY * maxDuration() &&
             block.timestamp > endTimestamp

@@ -9,8 +9,7 @@ import { MockContract, smock } from '@defi-wonderland/smock';
 import { BigNumber } from "ethers";
 import { formatEther, parseEther } from "ethers/lib/utils";
 import { writeFileSync } from "fs";
-import { join, parse } from "path";
-import moment from "moment";
+import { join } from "path";
 
 chai.should();
 chai.use(smock.matchers);
@@ -75,6 +74,31 @@ const getTimeSinceLastRewardTimestamp = async (contract: StakingPool): Promise<n
   return now - lastRewardTimestamp
 }
 
+const getPoolBalance = async (contract: StakingPool): Promise<BigNumber> => {
+  const poolFactor = await contract["poolFactor()"]()
+
+  return await contract["poolBalance(uint256)"](poolFactor)
+}
+
+const getTotalRewards = async (contract: StakingPool, ...tokenIds: number[]): Promise<BigNumber> => {
+  const pendingRewards = []
+
+  for (const tokenId of tokenIds) {
+    const rewards = await contract.pendingRewards(tokenId)
+    pendingRewards.push(rewards)
+  }
+
+  return pendingRewards.reduce((prev, curr) => prev.add(curr), BigNumber.from(0))
+}
+
+const getBalanceChange = async (contract: MockContract<WeSenditToken>, address: string, action: Function): Promise<BigNumber> => {
+  const balanceBefore = await contract.balanceOf(address)
+  await action()
+  const balanceAfter = await contract.balanceOf(address)
+
+  return balanceAfter.sub(balanceBefore)
+}
+
 const increaseToSinceStakingStart = async (contract: StakingPool, tokenId: number, duration: number) => {
   const entry = await contract.poolEntry(tokenId)
 
@@ -96,6 +120,9 @@ describe.only("StakingPool", function () {
   let bob: SignerWithAddress
   let addrs: SignerWithAddress[]
 
+  let ADMIN: string
+  let UPDATE_ALLOCATED_POOL_SHARES: string
+
   beforeEach(async function () {
     [owner, alice, bob, ...addrs] = await ethers.getSigners()
 
@@ -108,19 +135,49 @@ describe.only("StakingPool", function () {
     const StakingPool = await ethers.getContractFactory("StakingPool")
     contract = await StakingPool.deploy(mockWsi.address, mockProofToken.address)
 
+    ADMIN = await contract.ADMIN()
+    UPDATE_ALLOCATED_POOL_SHARES = await contract.UPDATE_ALLOCATED_POOL_SHARES()
+
+    await contract.grantRole(UPDATE_ALLOCATED_POOL_SHARES, owner.address)
+
     await mockProofToken.transferOwnership(contract.address)
     await mockWsi.unpause()
     await mockWsi.transfer(contract.address, INITIAL_POOL_BALANCE)
     await mockWsi.transfer(alice.address, parseEther('10000000'))
   });
 
-  describe("Deployment", function () {
-  });
+  describe("Deployment", async function () {
+    it("should set the right owner", async function () {
+      expect(await contract.owner()).to.equal(owner.address)
+    });
 
-  xdescribe("Pool Factor Calculation", function () {
-    beforeEach(async function () {
+    it("should assign correct initial values", async function () {
+      expect(await contract.TOKEN_PER_SECOND()).to.equal(BigNumber.from('7654263202075702075'))
+      expect(await contract.poolPaused()).to.be.false
+      expect(await contract.currentPoolFactor()).to.equal(INITIAL_POOL_FACTOR)
+      expect(await contract.lastRewardTimestamp()).to.equal(0)
+      expect(await contract.allocatedPoolShares()).to.equal(0)
+      expect(await contract.activeAllocatedPoolShares()).to.equal(0)
+      expect(await contract.lastActiveAllocatedPoolSharesTimestamp()).to.equal(0)
+      expect(await contract.accRewardsPerShare()).to.equal(0)
+      expect(await contract.totalPoolShares()).to.equal(24072351600)
+      expect(await contract.totalTokenLocked()).to.equal(0)
+      expect(await contract.minDuration()).to.equal(7)
+      expect(await contract.maxDuration()).to.equal(364)
+      expect(await contract.stakeToken()).to.equal(mockWsi.address)
+      expect(await contract.proofToken()).to.equal(mockProofToken.address)
+      expect(await contract.maxStakingAmount()).to.equal(parseEther('1000000'))
     })
 
+    it("should assign correct roles to creator", async function () {
+      expect(await contract.hasRole(ADMIN, owner.address)).to.equal(true)
+
+      expect(await contract.getRoleAdmin(ADMIN)).to.equal(ADMIN)
+      expect(await contract.getRoleAdmin(UPDATE_ALLOCATED_POOL_SHARES)).to.equal(ADMIN)
+    })
+  });
+
+  describe('Pool Factor Calculation', async function () {
     for (const value of [
       {
         input: 140_000_000,
@@ -154,7 +211,7 @@ describe.only("StakingPool", function () {
       it(`should calculate correct pool factor (balance = ${value.input})`, async function () {
         // Assert
         expect(
-          await contract.poolFactor(parseEther(value.input.toString()))
+          await contract["poolFactor(uint256)"](parseEther(value.input.toString()))
         ).to.be.closeTo(value.output, 1000)
       })
     }
@@ -164,13 +221,15 @@ describe.only("StakingPool", function () {
 
       for (let i = 0; i <= Math.floor(120_000_000 / 100000); i++) {
         const input = 120_000_000 - (100000 * i)
-        const output = await contract.poolFactor(parseEther(input.toString()))
+        const output = await contract["poolFactor(uint256)"](parseEther(input.toString()))
         arr.push(`${input};${Number(formatEther(output)).toFixed(2).replace('.', ',')}`)
       }
 
       writeFileSync(join(__dirname, 'arr.txt'), arr.reverse().join('\n'))
     })
+  })
 
+  describe('APY / APR calculation', async function () {
     for (const value of [
       {
         input: 1,
@@ -262,332 +321,174 @@ describe.only("StakingPool", function () {
     }
   })
 
-  xdescribe('Pool Staking', function () {
+  describe('Pool Balance', async function () {
+    it('should calculate correct pool balance', async function () {
+      const amount = parseEther('1000000')
+      const maxRewards = parseEther('2006029.3')
 
-    afterEach(async function () {
-      await network.provider.send("hardhat_reset")
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Assert
+
+      // Day 0
+      expect(await contract.pendingRewards(0)).to.equal(0)
+
+      // Day 1 -> 364
+      for (let i = 1; i <= 364; i++) {
+        await increaseToSinceStakingStart(contract, 0, i * 86400)
+
+        const pendingRewards = await contract.pendingRewards(0)
+
+        expect(pendingRewards).to.be.closeTo(
+          await calculateExpectedRewards(contract, maxRewards, INITIAL_POOL_FACTOR, i * 86400, 31449600),
+          MIN_REWARD_PRECISION
+        )
+
+        const poolFactor = await contract["poolFactor()"]()
+        expect(await contract["poolBalance(uint256)"](poolFactor)).to.equal(
+          INITIAL_POOL_BALANCE.sub(pendingRewards.mul(100).div(97))
+        )
+      }
     })
 
-    for (const entry of [
-      {
-        amount: parseEther('200'),
-        duration: 364,
-        isAutoCompoundingEnabled: true,
-        shares: 40120,
-        rewards: parseEther('388.097797260273957143')
-      },
-      {
-        amount: parseEther('200'),
-        duration: 182,
-        isAutoCompoundingEnabled: true,
-        shares: 14701,
-        rewards: parseEther('142.209015890410953240')
-      },
-      {
-        amount: parseEther('200'),
-        duration: 7,
-        isAutoCompoundingEnabled: true,
-        shares: 426,
-        rewards: parseEther('4.120878904109588877')
-      },
-      {
-        amount: parseEther('200'),
-        duration: 364,
-        isAutoCompoundingEnabled: false,
-        shares: 22000,
-        rewards: parseEther('212.815342465753416180')
-      },
-      {
-        amount: parseEther('200'),
-        duration: 182,
-        isAutoCompoundingEnabled: false,
-        shares: 11000,
-        rewards: parseEther('106.407671232876708090')
-      },
-      {
-        amount: parseEther('200'),
-        duration: 7,
-        isAutoCompoundingEnabled: false,
-        shares: 418,
-        rewards: parseEther('4.043491506849314908')
-      }
-    ]) {
-      it(`should stake given token entry (amount = ${formatEther(entry.amount)}, duration = ${entry.duration}, isAutoCompoundingEnabled = ${entry.isAutoCompoundingEnabled})`, async function () {
+    it('should calculate correct pool balance with multiple stakers', async function () {
+      const amount = parseEther('1000000')
+
+      for (let i = 0; i < 2; i++) {
         // Arrange
-        await mockWsi.approve(contract.address, entry.amount)
+        await mockWsi.connect(alice).approve(contract.address, amount)
 
-        // Act
-        await contract.stake(
-          entry.amount,
-          entry.duration,
-          entry.isAutoCompoundingEnabled
+        // Act & Assert
+        await contract.connect(alice).stake(
+          amount,
+          364,
+          true
         )
-
-        // Assert
-        const startTimestamp = await getBlockTimestamp()
-        const poolEntry = await contract.poolEntry(0)
-        expect(poolEntry).to.have.length(9)
-        expect(poolEntry.amount).to.equal(entry.amount)
-        expect(poolEntry.duration).to.equal(entry.duration)
-        expect(poolEntry.shares).to.equal(entry.shares)
-        expect(poolEntry.rewardDebt).to.equal(0)
-        expect(poolEntry.claimedRewards).to.equal(0)
-        expect(poolEntry.lastClaimedAt).to.equal(0)
-        expect(poolEntry.startedAt).to.equal(await getBlockTimestamp())
-        expect(poolEntry.startBlock).to.equal(await getBlockNumber())
-        expect(poolEntry.isAutoCompoundingEnabled).to.equal(entry.isAutoCompoundingEnabled)
-
-        expect(await mockProofToken.balanceOf(owner.address)).to.equal(1)
-        expect(await mockProofToken.ownerOf(0)).to.equal(owner.address)
-
-        expect(await contract.pendingRewards(0)).to.equal(0)
-
-        await mineBlocks(1, 10)
-        const currentTimestamp = await getBlockTimestamp()
-        const diff = BigNumber.from(currentTimestamp - startTimestamp)
-        const rewards = entry.rewards.mul(diff).div(BigNumber.from(364 * 86400))
-
-        expect(await contract.pendingRewards(0)).to.be.closeTo(rewards, 100000)
-
-        await time.increaseTo(moment.unix(startTimestamp).add(364, 'days').unix())
-        expect(await contract.pendingRewards(0)).to.equal(entry.rewards)
-      })
-    }
-
-    it(`should not earn rewards after duration exceeded`, async function () {
-      // Arrange
-      const amount = parseEther('200')
-      const totalRewards = parseEther('388.097797260273957143')
-      const duration = 364
-      const isAutoCompoundingEnabled = true
-
-      await mockWsi.approve(contract.address, amount)
-
-      // Act
-      await contract.stake(
-        amount,
-        duration,
-        isAutoCompoundingEnabled
-      )
-
-      // Assert
-      const startTimestamp = await getBlockTimestamp()
-      expect(await contract.pendingRewards(0)).to.equal(0)
-
-      await time.increaseTo(moment.unix(startTimestamp).add(364 * 2, 'days').unix())
-
-      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, 100000)
-    })
-
-    it(`should not earn rewards after duration exceeded meanwhile updatePool() was triggered`, async function () {
-      // Arrange
-      const amount = parseEther('200')
-      const totalRewards = parseEther('388.097797260273957143')
-      const duration = 364
-      const isAutoCompoundingEnabled = true
-
-      await mockWsi.approve(contract.address, amount)
-
-      // Act
-      await contract.stake(
-        amount,
-        duration,
-        isAutoCompoundingEnabled
-      )
-
-      // Assert
-      const startTimestamp = await getBlockTimestamp()
-      expect(await contract.pendingRewards(0)).to.equal(0)
-
-      await time.increaseTo(moment.unix(startTimestamp).add(364, 'days').unix())
-      expect(await contract.pendingRewards(0)).to.equal(totalRewards)
-
-      await mockWsi.approve(contract.address, parseEther('200'))
-      await contract.stake(
-        parseEther('200'),
-        duration,
-        isAutoCompoundingEnabled
-      )
-
-      await time.increaseTo(moment.unix(await getBlockTimestamp()).add(364 / 2, 'days').unix())
-      await contract.updatePool()
-
-      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, MIN_REWARD_PRECISION)
-      expect(await contract.pendingRewards(1)).to.be.closeTo(totalRewards.div(2), MIN_REWARD_PRECISION)
-    })
-
-    it(`should not earn rewards after duration exceeded meanwhile updatePool() was triggered`, async function () {
-      // Arrange
-      const amount = parseEther('200')
-      const totalRewards = parseEther('388.097797260273957143')
-      const duration = 364
-      const isAutoCompoundingEnabled = true
-
-      await mockWsi.approve(contract.address, amount)
-
-      // Act
-      await contract.stake(
-        amount,
-        duration,
-        isAutoCompoundingEnabled
-      )
-
-      // Assert
-      expect(await contract.pendingRewards(0)).to.equal(0)
-
-      await time.increaseTo(moment.unix(await getBlockTimestamp()).add(364 * 1.5, 'days').unix())
-      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, MIN_REWARD_PRECISION)
-
-      await mockWsi.approve(contract.address, parseEther('200'))
-      await contract.stake(
-        parseEther('200'),
-        duration,
-        isAutoCompoundingEnabled
-      )
-
-      await time.increaseTo(moment.unix(await getBlockTimestamp()).add(364 * 0.75, 'days').unix())
-      await contract.updatePool()
-
-      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, MIN_REWARD_PRECISION)
-      expect(await contract.pendingRewards(1)).to.be.closeTo(totalRewards.mul(3).div(4), MIN_REWARD_PRECISION)
-    })
-
-    it(`should not earn rewards after duration exceeded meanwhile updatePool() was triggered`, async function () {
-      // Arrange
-      const amount = parseEther('200')
-      const totalRewards = parseEther('388.097797260273957143')
-      const duration = 364
-      const isAutoCompoundingEnabled = true
-
-      await mockWsi.approve(contract.address, amount)
-
-      // Act
-      await contract.stake(
-        amount,
-        duration,
-        isAutoCompoundingEnabled
-      )
-
-      // Assert
-      expect(await contract.pendingRewards(0)).to.equal(0)
-
-      await time.increaseTo(moment.unix(await getBlockTimestamp()).add(364 * 0.75, 'days').unix())
-
-      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards.mul(3).div(4), MIN_REWARD_PRECISION)
-
-      await time.increaseTo(moment.unix(await getBlockTimestamp()).add(364 * 1.5, 'days').unix())
-
-      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, MIN_REWARD_PRECISION)
-
-      await mockWsi.approve(contract.address, parseEther('100000'))
-      await contract.stake(
-        parseEther('100000'),
-        duration,
-        isAutoCompoundingEnabled
-      )
-
-      await time.increaseTo(moment.unix(await getBlockTimestamp()).add(364 * 0.5, 'days').unix())
-      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, MIN_REWARD_PRECISION)
-
-      await mockWsi.approve(contract.address, parseEther('100000'))
-      await contract.stake(
-        parseEther('100000'),
-        duration,
-        isAutoCompoundingEnabled
-      )
-
-      await time.increaseTo(moment.unix(await getBlockTimestamp()).add(364 * 100, 'days').unix())
-
-      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, MIN_REWARD_PRECISION)
-      // expect(await contract.pendingRewards(1)).to.be.closeTo(totalRewards.div(2), MIN_REWARD_PRECISION)
-    })
-
-    xit(`should not earn rewards after duration exceeded meanwhile updatePool() was triggered`, async function () {
-      // Arrange
-      const amount = parseEther('200')
-      const totalRewards = parseEther('388.097797260273957143')
-      const duration = 364
-      const isAutoCompoundingEnabled = true
-
-      await mockWsi.approve(contract.address, amount)
-
-      // Act
-      await contract.stake(
-        amount,
-        duration,
-        isAutoCompoundingEnabled
-      )
-
-      // Assert
-      expect(await contract.pendingRewards(0)).to.equal(0)
-
-      await time.increaseTo(moment.unix(await getBlockTimestamp()).add(364 * 0.5, 'days').unix())
-
-      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards.mul(2).div(4), MIN_REWARD_PRECISION)
-
-      for (let i = 0; i < 1000; i++) {
-        await mockWsi.approve(contract.address, parseEther('10'))
-        await contract.stake(
-          parseEther('10'),
-          duration,
-          isAutoCompoundingEnabled
-        )
-
-        await time.increaseTo(moment.unix(await getBlockTimestamp()).add(0.01 * (364 * (i + 1)), 'days').unix())
       }
 
-      expect(await contract.pendingRewards(0)).to.be.closeTo(totalRewards, MIN_REWARD_PRECISION)
-      // expect(await contract.pendingRewards(1)).to.be.closeTo(totalRewards.div(2), MIN_REWARD_PRECISION)
+      // Assert
+
+      // Day 1 -> 364
+      for (let i = 1; i <= 364; i++) {
+        // Start from second entry to skip math
+        await increaseToSinceStakingStart(contract, 1, i * 86400)
+
+        const pendingRewardsFirst = await contract.pendingRewards(0)
+        const pendingRewardsSecond = await contract.pendingRewards(1)
+        const pendingRewardsTotal = pendingRewardsFirst.add(pendingRewardsSecond)
+
+        expect(await getPoolBalance(contract)).to.be.closeTo(
+          INITIAL_POOL_BALANCE.sub(pendingRewardsTotal.mul(100).div(97)),
+          MIN_REWARD_PRECISION
+        )
+      }
     })
 
+    it('should calculate correct pool balance with multiple stakers and pool update', async function () {
+      const amount = parseEther('1000000')
+
+      for (let i = 0; i < 2; i++) {
+        // Arrange
+        await mockWsi.connect(alice).approve(contract.address, amount)
+
+        // Act & Assert
+        await contract.connect(alice).stake(
+          amount,
+          364,
+          true
+        )
+      }
+
+      // Assert
+
+      // Day 1 -> 182
+      for (let i = 1; i <= 182; i++) {
+        // Start from second entry to skip math
+        await increaseToSinceStakingStart(contract, 1, i * 86400)
+
+        const pendingRewardsFirst = await contract.pendingRewards(0)
+        const pendingRewardsSecond = await contract.pendingRewards(1)
+        const pendingRewardsTotal = pendingRewardsFirst.add(pendingRewardsSecond)
+
+        expect(await getPoolBalance(contract)).to.be.closeTo(
+          INITIAL_POOL_BALANCE.sub(pendingRewardsTotal.mul(100).div(97)),
+          MIN_REWARD_PRECISION
+        )
+      }
+
+      // Trigger pool update
+      await contract.updatePool()
+
+      // Day 183 -> 364
+      for (let i = 183; i <= 364; i++) {
+        // Start from second entry to skip math
+        await increaseToSinceStakingStart(contract, 1, i * 86400)
+
+        const pendingRewardsFirst = await contract.pendingRewards(0)
+        const pendingRewardsSecond = await contract.pendingRewards(1)
+        const pendingRewardsTotal = pendingRewardsFirst.add(pendingRewardsSecond)
+
+        expect(await getPoolBalance(contract)).to.be.closeTo(
+          INITIAL_POOL_BALANCE.sub(pendingRewardsTotal.mul(100).div(97)),
+          MIN_REWARD_PRECISION
+        )
+      }
+    })
+
+    it('should calculate correct pool balance with multiple stakers and activeAllocatedPoolShares update', async function () {
+      const amount = parseEther('1000000')
+
+      for (let i = 0; i < 2; i++) {
+        // Arrange
+        await mockWsi.connect(alice).approve(contract.address, amount)
+
+        // Act & Assert
+        await contract.connect(alice).stake(
+          amount,
+          364,
+          true
+        )
+      }
+
+      // Assert
+
+      // Skip first staking entry
+      await increaseToSinceStakingStart(contract, 1, 31449600)
+
+      // Check pool balance
+      const totalRewardsBeforeUpdate = await getTotalRewards(contract, 0, 1)
+      expect(await getPoolBalance(contract)).to.be.closeTo(
+        INITIAL_POOL_BALANCE.sub(totalRewardsBeforeUpdate.mul(100).div(97)),
+        MIN_REWARD_PRECISION
+      )
+
+      // Skip 15 minutes
+      await increaseToSinceStakingStart(contract, 1, 31449600 + (15 * 60))
+
+      // Update active pool shares (this is done off-chain)
+      const activePoolShares = (await contract.poolEntry(0)).shares
+      await contract.setActiveAllocatedPoolShares(activePoolShares)
+
+      // Skip 1 year
+      await increaseToSinceStakingStart(contract, 1, 31449600 * 2)
+
+      // Check pool balance
+      expect(await getPoolBalance(contract)).to.be.closeTo(
+        INITIAL_POOL_BALANCE.sub(totalRewardsBeforeUpdate.mul(100).div(97)),
+        MIN_REWARD_PRECISION
+      )
+    })
   })
 
-  xit('Pool Balance correct', async function () {
-    // Assert initial state
-    expect(await contract.currentPoolFactor()).to.equal(INITIAL_POOL_FACTOR)
-    expect(await contract['poolBalance()']()).to.equal(INITIAL_POOL_BALANCE)
-
-    // Calculate max. possible rewards
-    const initialApr = await contract["apr(uint256)"](364)
-    const maxRewards = parseEther('1000000').mul(initialApr).div(1e7)
-
-    // Stake token inside pool
-    await mockWsi.connect(alice).approve(contract.address, parseEther('1000000'))
-    await contract.connect(alice).stake(
-      parseEther('1000000'),
-      364,
-      false
-    )
-
-    await network.provider.send("evm_setAutomine", [
-      false
-    ])
-
-    // Assert
-    const poolEntry = await contract.poolEntry(0)
-    const stakingStart = poolEntry.startedAt.toNumber()
-    const calculatedRewards = maxRewards.mul(24 * 60 * 60).div(364 * 24 * 60 * 60)
-    const calculatedFee = calculatedRewards.mul(3).div(100)
-
-    expect(await contract.currentPoolFactor()).to.equal(INITIAL_POOL_FACTOR)
-    expect(await contract['poolBalance()']()).to.equal(INITIAL_POOL_BALANCE)
-
-    await time.increaseTo(moment.unix(stakingStart).add(1, 'days').unix())
-
-    const firstPoolFactor = await contract["poolFactor()"]()
-    expect(firstPoolFactor).to.equal(parseEther('99.999991826480250200'))
-    expect(await contract.pendingRewards(0)).to.be.closeTo(calculatedRewards.mul(firstPoolFactor).div(parseEther('100')).sub(calculatedFee), MIN_REWARD_PRECISION)
-    expect(await contract['poolBalance()']()).to.be.closeTo(INITIAL_POOL_BALANCE.sub(calculatedRewards.mul(firstPoolFactor).div(parseEther('100'))), MIN_REWARD_PRECISION)
-
-    await time.increaseTo(moment.unix(stakingStart).add(364, 'days').unix())
-
-    const secondPoolFactor = await contract["poolFactor()"]()
-    expect(secondPoolFactor).to.equal(parseEther('99.982232766916152200'))
-    expect(await contract.pendingRewards(0)).to.be.closeTo(maxRewards.mul(secondPoolFactor).div(parseEther('100')).mul(97).div(100), MIN_REWARD_PRECISION)
-    expect(await contract['poolBalance(uint256)'](secondPoolFactor)).to.be.closeTo(INITIAL_POOL_BALANCE.sub(maxRewards.mul(secondPoolFactor).div(parseEther('100'))), MIN_REWARD_PRECISION)
-  })
-
-  describe.only('Rewards', async function () {
+  describe('Rewards', async function () {
     it('should calculate correct rewards (auto-compounding = true)', async function () {
       const amount = parseEther('1000000')
       const maxRewards = parseEther('2006029.3')
@@ -1430,60 +1331,8 @@ describe.only("StakingPool", function () {
     })
   })
 
-  describe('Bla', async function () {
-    it('should unstake token', async function () {
-      const amount = parseEther('1000000')
-      const maxRewards = parseEther('1100000')
-
-      // Arrange
-      await mockWsi.connect(alice).approve(contract.address, amount)
-
-      // Act & Assert
-      await contract.connect(alice).stake(
-        amount,
-        364,
-        false
-      )
-
-      // Skip reward period
-      await increaseToSinceStakingStart(contract, 0, 259200)
-
-      // Check if pending rewards are matching
-      const pendingRewards = await contract.pendingRewards(0)
-      expect(pendingRewards).to.be.closeTo(
-        await calculateExpectedRewards(contract, maxRewards, INITIAL_POOL_FACTOR, 259200, 31449600),
-        MIN_REWARD_PRECISION
-      )
-
-      // Claim rewards
-      const initialBalance = await mockWsi.balanceOf(alice.address)
-      expect(await mockWsi.balanceOf(alice.address)).to.equal(initialBalance)
-      await contract.connect(alice).claimRewards(0)
-      expect(await mockWsi.balanceOf(alice.address)).to.be.closeTo(
-        initialBalance.add(pendingRewards),
-        MIN_REWARD_PRECISION
-      )
-
-      expect(await contract.pendingRewards(0)).to.equal(0)
-
-      const entry = await contract.poolEntry(0)
-      expect(entry.claimedRewards).to.be.closeTo(
-        pendingRewards,
-        MIN_REWARD_PRECISION
-      )
-      expect(entry.lastClaimedAt).to.equal(await getBlockTimestamp())
-
-      await mineBlocks(1, 1)
-
-      expect(await contract.pendingRewards(0)).to.be.closeTo(
-        await calculateExpectedRewards(contract, maxRewards, INITIAL_POOL_FACTOR, 1, 31449600),
-        MIN_REWARD_PRECISION
-      )
-    })
-  })
-
   describe('Stake', async function () {
-    it('should successfully stake (auto-compounding = true)', async function () {
+    it('should stake (auto-compounding = true)', async function () {
       const amount = parseEther('1000000')
 
       // Arrange
@@ -1511,9 +1360,12 @@ describe.only("StakingPool", function () {
       expect(entry.startedAt).to.equal(await getBlockTimestamp())
       expect(entry.isUnstaked).to.be.false
       expect(entry.isAutoCompoundingEnabled).to.be.true
+      expect(await contract.totalTokenLocked()).to.equal(amount)
+      expect(await contract.allocatedPoolShares()).to.equal(200602930)
+      expect(await contract.activeAllocatedPoolShares()).to.equal(200602930)
     })
 
-    it('should successfully stake (auto-compounding = false)', async function () {
+    it('should stake (auto-compounding = false)', async function () {
       const amount = parseEther('1000000')
 
       // Arrange
@@ -1541,9 +1393,12 @@ describe.only("StakingPool", function () {
       expect(entry.startedAt).to.equal(await getBlockTimestamp())
       expect(entry.isUnstaked).to.be.false
       expect(entry.isAutoCompoundingEnabled).to.be.false
+      expect(await contract.totalTokenLocked()).to.equal(amount)
+      expect(await contract.allocatedPoolShares()).to.equal(110000000)
+      expect(await contract.activeAllocatedPoolShares()).to.equal(110000000)
     })
 
-    it('should successfully stake multiple times (auto-compounding = true)', async function () {
+    it('should stake multiple times (auto-compounding = true)', async function () {
       const amount = parseEther('1000000')
 
       for (let i = 0; i < 2; i++) {
@@ -1572,7 +1427,7 @@ describe.only("StakingPool", function () {
       expect(secondEntry.shares).to.equal(200602930)
     })
 
-    it('should successfully stake multiple times (auto-compounding = false)', async function () {
+    it('should stake multiple times (auto-compounding = false)', async function () {
       const amount = parseEther('1000000')
 
       for (let i = 0; i < 2; i++) {
@@ -1659,6 +1514,650 @@ describe.only("StakingPool", function () {
         364,
         false
       )).to.be.revertedWith('Staking Pool: Max. staking amount exceeded')
+    })
+
+    it('should fail to stake if transfer fails', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Setup mock
+      mockWsi.transferFrom.returnsAtCall(0, false)
+
+      // Act & Assert
+      await expect(contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )).to.be.revertedWith('Staking Pool: Failed to transfer token')
+    })
+  })
+
+  describe('Un-stake', async function () {
+    it('should unstake token', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip to staking end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Snapshot pending rewards
+      const pendingRewards = await contract.pendingRewards(0)
+
+      // Un-stake token
+      expect(await getBalanceChange(mockWsi, alice.address, async () => {
+        await contract.connect(alice).unstake(0)
+      })).to.be.closeTo(
+        amount.add(pendingRewards),
+        MIN_REWARD_PRECISION
+      )
+
+      // Check state
+      const entry = await contract.poolEntry(0)
+      expect(entry.lastClaimedAt).to.equal(await getBlockTimestamp())
+      expect(entry.claimedRewards).to.be.closeTo(
+        pendingRewards,
+        MIN_REWARD_PRECISION
+      )
+      expect(entry.isUnstaked).to.be.true
+      expect(await contract.totalTokenLocked()).to.equal(0)
+      expect(await contract.allocatedPoolShares()).to.equal(0)
+      expect(await contract.pendingRewards(0)).to.equal(0)
+
+      // Skip one year
+      await increaseToSinceStakingStart(contract, 0, 31449600 * 2)
+
+      // Check rewards
+      expect(await contract.pendingRewards(0)).to.equal(0)
+    })
+
+    it('should fail to unstake token before duration passed', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip close to staking end
+      await increaseToSinceStakingStart(contract, 0, 31449600 - 2)
+
+      // Check for transaction status
+      await expect(contract.connect(alice).unstake(0)).to.be.revertedWith('Staking Pool: Staking entry is locked')
+    })
+
+    it('should fail to unstake token twice', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip close to staking end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Unstake
+      await contract.connect(alice).unstake(0)
+
+      // Check for transaction status
+      await expect(contract.connect(alice).unstake(0)).to.be.revertedWith('Staking Pool: Staking entry was already unstaked')
+    })
+
+    it('should fail to unstake token if transfer fails', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip close to staking end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Setup mock
+      mockWsi.transfer.returnsAtCall(3, false)
+
+      // Check for transaction status
+      await expect(contract.connect(alice).unstake(0)).to.be.revertedWith('Staking Pool: Failed to transfer initial stake')
+    })
+
+    it('should fail to unstake token if caller is not token owner', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip close to staking end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Check for transaction status
+      await expect(contract.connect(bob).unstake(0)).to.be.revertedWith('Staking Pool: Caller is not entry owner')
+    })
+  })
+
+  describe('Claim', async function () {
+    it('should claim token', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        false
+      )
+
+      // Skip some days
+      await increaseToSinceStakingStart(contract, 0, 5 * 86400)
+
+      // Snapshot pending rewards
+      const pendingRewards = await contract.pendingRewards(0)
+
+      // Claim token
+      expect(await getBalanceChange(mockWsi, alice.address, async () => {
+        await contract.connect(alice).claimRewards(0)
+      })).to.be.closeTo(
+        pendingRewards,
+        MIN_REWARD_PRECISION
+      )
+
+      // Check state
+      const entry = await contract.poolEntry(0)
+      expect(entry.lastClaimedAt).to.equal(await getBlockTimestamp())
+      expect(entry.claimedRewards).to.be.closeTo(
+        pendingRewards,
+        MIN_REWARD_PRECISION
+      )
+      expect(entry.isUnstaked).to.be.false
+      expect(await contract.pendingRewards(0)).to.equal(0)
+
+      // Skip some days
+      await increaseToSinceStakingStart(contract, 0, 10 * 86400)
+      expect(await contract.pendingRewards(0)).to.not.equal(0)
+
+      // Skip to end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Snapshot pending rewards
+      const pendingRewardsEnd = await contract.pendingRewards(0)
+
+      // Claim token
+      expect(await getBalanceChange(mockWsi, alice.address, async () => {
+        await contract.connect(alice).claimRewards(0)
+      })).to.be.closeTo(
+        pendingRewardsEnd,
+        MIN_REWARD_PRECISION
+      )
+
+      // Check state
+      const entryEnd = await contract.poolEntry(0)
+      expect(entryEnd.lastClaimedAt).to.equal(await getBlockTimestamp())
+      expect(entryEnd.claimedRewards).to.be.closeTo(
+        pendingRewardsEnd.add(pendingRewards),
+        MIN_REWARD_PRECISION
+      )
+      expect(entryEnd.isUnstaked).to.be.false
+
+      // Skip some days
+      await increaseToSinceStakingStart(contract, 0, 31449600 + (10 * 86400))
+      expect(await contract.pendingRewards(0)).to.equal(0)
+    })
+
+    it('should claim token on staking end (auto-compounding = true)', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip to end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Snapshot pending rewards
+      const pendingRewards = await contract.pendingRewards(0)
+
+      // Claim token
+      expect(await getBalanceChange(mockWsi, alice.address, async () => {
+        await contract.connect(alice).claimRewards(0)
+      })).to.be.closeTo(
+        pendingRewards,
+        MIN_REWARD_PRECISION
+      )
+
+      // Check state
+      const entry = await contract.poolEntry(0)
+      expect(entry.lastClaimedAt).to.equal(await getBlockTimestamp())
+      expect(entry.claimedRewards).to.be.closeTo(
+        pendingRewards,
+        MIN_REWARD_PRECISION
+      )
+      expect(entry.isUnstaked).to.be.false
+      expect(await contract.pendingRewards(0)).to.equal(0)
+    })
+
+    it('should claim and unstake token', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        false
+      )
+
+      // Skip to end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Snapshot pending rewards
+      const pendingRewards = await contract.pendingRewards(0)
+
+      // Claim token
+      expect(await getBalanceChange(mockWsi, alice.address, async () => {
+        await contract.connect(alice).claimRewards(0)
+      })).to.be.closeTo(
+        pendingRewards,
+        MIN_REWARD_PRECISION
+      )
+
+      const timestampClaimed = await getBlockTimestamp()
+
+      // Un-stake
+      expect(await getBalanceChange(mockWsi, alice.address, async () => {
+        await contract.connect(alice).unstake(0)
+      })).to.be.closeTo(
+        amount,
+        MIN_REWARD_PRECISION
+      )
+
+      // Check state
+      const entry = await contract.poolEntry(0)
+      expect(entry.lastClaimedAt).to.equal(timestampClaimed)
+      expect(entry.claimedRewards).to.be.closeTo(
+        pendingRewards,
+        MIN_REWARD_PRECISION
+      )
+      expect(entry.isUnstaked).to.be.true
+      expect(await contract.pendingRewards(0)).to.equal(0)
+    })
+
+    it('should claim and unstake token on staking end (auto-compounding = true)', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip to end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Snapshot pending rewards
+      const pendingRewards = await contract.pendingRewards(0)
+
+      // Claim token
+      expect(await getBalanceChange(mockWsi, alice.address, async () => {
+        await contract.connect(alice).claimRewards(0)
+      })).to.be.closeTo(
+        pendingRewards,
+        MIN_REWARD_PRECISION
+      )
+
+      const timestampClaimed = await getBlockTimestamp()
+
+      // Un-stake
+      expect(await getBalanceChange(mockWsi, alice.address, async () => {
+        await contract.connect(alice).unstake(0)
+      })).to.be.closeTo(
+        amount,
+        MIN_REWARD_PRECISION
+      )
+
+      // Check state
+      const entry = await contract.poolEntry(0)
+      expect(entry.lastClaimedAt).to.equal(timestampClaimed)
+      expect(entry.claimedRewards).to.be.closeTo(
+        pendingRewards,
+        MIN_REWARD_PRECISION
+      )
+      expect(entry.isUnstaked).to.be.true
+      expect(await contract.pendingRewards(0)).to.equal(0)
+    })
+
+    it('should unstake token (and claim simultaneously)', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        false
+      )
+
+      // Skip to end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Snapshot pending rewards
+      const pendingRewards = await contract.pendingRewards(0)
+
+      // Claim token
+      expect(await getBalanceChange(mockWsi, alice.address, async () => {
+        await contract.connect(alice).unstake(0)
+      })).to.be.closeTo(
+        amount.add(pendingRewards),
+        MIN_REWARD_PRECISION
+      )
+
+      // Check state
+      const entry = await contract.poolEntry(0)
+      expect(entry.lastClaimedAt).to.equal(await getBlockTimestamp())
+      expect(entry.claimedRewards).to.be.closeTo(
+        pendingRewards,
+        MIN_REWARD_PRECISION
+      )
+      expect(entry.isUnstaked).to.be.true
+      expect(await contract.pendingRewards(0)).to.equal(0)
+    })
+
+    it('should fail to claim if already unstaked', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        false
+      )
+
+      // Skip to end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Unstake
+      await contract.connect(alice).unstake(0)
+
+      // Check transaction status
+      await expect(contract.connect(alice).claimRewards(0)).to.be.revertedWith("Staking Pool: Staking entry was already unstaked")
+    })
+
+    it('should fail to claim (auto-compounding = true) before duration passed', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip close to end
+      await increaseToSinceStakingStart(contract, 0, 31449600 - 2)
+
+      await expect(contract.connect(alice).claimRewards(0)).to.be.revertedWith("Staking Pool: Cannot claim before staking end")
+    })
+
+    it('should fail to claim token if transfer fails', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip close to staking end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Setup mock
+      mockWsi.transfer.returnsAtCall(2, false)
+
+      // Check for transaction status
+      await expect(contract.connect(alice).claimRewards(0)).to.be.revertedWith('Staking Pool: Failed to transfer rewards')
+    })
+
+    it('should fail to claim token if caller is not token owner', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip close to staking end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Check for transaction status
+      await expect(contract.connect(bob).claimRewards(0)).to.be.revertedWith('Staking Pool: Caller is not entry owner')
+    })
+  })
+
+  describe('Pool Pause', async function () {
+    it('should fail to stake if pool is paused', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Pause pool
+      await contract.setPoolPaused(true)
+
+      // Act & Assert
+      await expect(contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )).to.be.revertedWith('Staking Pool: Pool operations are currently paused')
+    })
+
+    it('should fail to unstake token if pool is paused', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip close to staking end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Pause pool
+      await contract.setPoolPaused(true)
+
+      // Check for transaction status
+      await expect(contract.connect(alice).unstake(0)).to.be.revertedWith('Staking Pool: Pool operations are currently paused')
+    })
+
+    it('should fail to claim token if pool is paused', async function () {
+      const amount = parseEther('1000000')
+
+      // Arrange
+      await mockWsi.connect(alice).approve(contract.address, amount)
+
+      // Act & Assert
+      await contract.connect(alice).stake(
+        amount,
+        364,
+        true
+      )
+
+      // Skip close to staking end
+      await increaseToSinceStakingStart(contract, 0, 31449600)
+
+      // Pause pool
+      await contract.setPoolPaused(true)
+
+      // Check for transaction status
+      await expect(contract.connect(alice).claimRewards(0)).to.be.revertedWith('Staking Pool: Pool operations are currently paused')
+    })
+  })
+
+  describe('Emergency Withdraw', function () {
+    describe('BNB', function () {
+      beforeEach(async function () {
+        await ethers.provider.send('hardhat_setBalance', [
+          contract.address,
+          '0x56BC75E2D63100000'
+        ])
+      })
+
+      it('should withdraw all BNB', async function () {
+        // Assert
+        const balanceBefore = await ethers.provider.getBalance(owner.address)
+        expect(await ethers.provider.getBalance(contract.address)).to.equal(parseEther('100'))
+
+        // Act
+        await expect(
+          contract.emergencyWithdraw(parseEther('100'))
+        ).to.not.be.reverted
+
+        // Assert
+        const balanceAfter = await ethers.provider.getBalance(owner.address)
+        expect(balanceAfter.sub(balanceBefore)).to.closeTo(parseEther('100'), parseEther('0.0001'))
+        expect(await ethers.provider.getBalance(contract.address)).to.equal(parseEther('0'))
+      })
+
+      it('should withdraw custom amount BNB', async function () {
+        // Assert
+        const balanceBefore = await ethers.provider.getBalance(owner.address)
+        expect(await ethers.provider.getBalance(contract.address)).to.equal(parseEther('100'))
+
+        // Act
+        await expect(
+          contract.emergencyWithdraw(parseEther('10'))
+        ).to.not.be.reverted
+
+        // Assert
+        const balanceAfter = await ethers.provider.getBalance(owner.address)
+        expect(balanceAfter.sub(balanceBefore)).to.closeTo(parseEther('10'), parseEther('0.0001'))
+        expect(await ethers.provider.getBalance(contract.address)).to.equal(parseEther('90'))
+      })
+
+      it('should fail on withdraw if caller is non-owner', async function () {
+        await expect(
+          contract.connect(alice).emergencyWithdraw(parseEther('100'))
+        ).to.be.reverted
+      })
+    })
+
+    describe('Token', function () {
+      beforeEach(async function () {
+        await contract.grantRole(ADMIN, alice.address)
+
+        // Drain token first
+        const contractBalance = await mockWsi.balanceOf(contract.address)
+        await contract.grantRole(ADMIN, bob.address)
+        await contract.connect(bob).emergencyWithdrawToken(mockWsi.address, contractBalance)
+
+        const aliceBalance = await mockWsi.balanceOf(alice.address)
+        await mockWsi.connect(alice).transfer(bob.address, aliceBalance)
+
+        // Transfer test token to contract
+        await mockWsi.transfer(contract.address, parseEther('100'))
+      })
+
+      it('should withdraw all token', async function () {
+        // Assert
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('100'))
+
+        // Act
+        await expect(
+          contract.connect(alice).emergencyWithdrawToken(mockWsi.address, parseEther('100'))
+        ).to.not.be.reverted
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('100'))
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('0'))
+      })
+
+      it('should withdraw custom amount token', async function () {
+        // Assert
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('100'))
+
+        // Act
+        await expect(
+          contract.connect(alice).emergencyWithdrawToken(mockWsi.address, parseEther('10'))
+        ).to.not.be.reverted
+
+        // Assert
+        expect(await mockWsi.balanceOf(alice.address)).to.equal(parseEther('10'))
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('90'))
+      })
+
+      it('should fail on withdraw if caller is non-owner', async function () {
+        await expect(
+          contract.connect(addrs[0]).emergencyWithdrawToken(mockWsi.address, parseEther('100'))
+        ).to.be.reverted
+      })
     })
   })
 

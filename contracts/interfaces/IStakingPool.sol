@@ -78,13 +78,6 @@ interface IStakingPool {
     );
 
     /**
-     * Set rewards claim interval
-     *
-     * @param value uint256 - New rewards claim interval
-     */
-    function setRewardsClaimInterval(uint256 value) external;
-
-    /**
      * Set pool paused state
      *
      * @param value bool - true = Pause pool, false = Unpause pool
@@ -92,11 +85,12 @@ interface IStakingPool {
     function setPoolPaused(bool value) external;
 
     /**
-     * Set allocated pool shares
+     * Set active allocated pool shares
+     * This is only called by off-chain service
      *
-     * @param value uint256 - New allocated pool shares
+     * @param value uint256 - New active allocated pool shares
      */
-    function setAllocatedPoolShares(uint256 value) external;
+    function setActiveAllocatedPoolShares(uint256 value) external;
 
     /**
      * Calculates the APY in percent for given staking duration (days)
@@ -143,6 +137,23 @@ interface IStakingPool {
      * @return value uint256 - Amount of allocated pool shares
      */
     function allocatedPoolShares() external view returns (uint256 value);
+
+    /**
+     * Last block timestamp active allocated pool shares were calculated at
+     *
+     * @return value uint256 - Last block timestamp active allocated pool shares calculated at
+     */
+    function activeAllocatedPoolShares() external view returns (uint256 value);
+
+    /**
+     * Total amount of active (within staking duration) allocated pool shares
+     *
+     * @return value uint256 - Amount of active allocated pool shares
+     */
+    function lastActiveAllocatedPoolSharesTimestamp()
+        external
+        view
+        returns (uint256 value);
 
     /**
      * Accured rewards per pool share

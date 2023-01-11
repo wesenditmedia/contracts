@@ -24,8 +24,12 @@ abstract contract BaseStakingPool is
     AccessControlEnumerable,
     ReentrancyGuard
 {
-    using Arrays for uint256[];
-    using Counters for Counters.Counter;
+    // Role allowed to do admin operations like pausing and emergency withdrawal.
+    bytes32 public constant ADMIN = keccak256("ADMIN");
+
+    // Role allowed to update allocatedPoolShares
+    bytes32 public constant UPDATE_ALLOCATED_POOL_SHARES =
+        keccak256("UPDATE_ALLOCATED_POOL_SHARES");
 
     // Rewards in token per second
     // Calculation: Max. rewards per year (365 days) / 31_536_000 (seconds per year)
@@ -40,9 +44,6 @@ abstract contract BaseStakingPool is
     // Seconds per hour
     uint256 internal constant SECONDS_PER_HOUR = 3600;
 
-    // Claiming interval for non auto-compounding rewards
-    uint256 internal _rewardsClaimInterval = 3 * SECONDS_PER_DAY;
-
     // Indicator, if pool is paused (no stake, no unstake, no claim)
     bool internal _poolPaused = false;
 
@@ -54,6 +55,12 @@ abstract contract BaseStakingPool is
 
     // Amount of allocated pool shares
     uint256 internal _allocatedPoolShares;
+
+    // Amount of active allocated pool shares
+    uint256 internal _activeAllocatedPoolShares;
+
+    // Timestamp of last block active allocated pool shares were updated
+    uint256 internal _lastActiveAllocatedPoolSharesTimestamp;
 
     // Amount of accured rewards per share, updated on every updatePool() call
     uint256 internal _accRewardsPerShare;
@@ -95,32 +102,41 @@ abstract contract BaseStakingPool is
     }
 
     constructor(address stakeTokenAddress, address proofTokenAddress) {
+        // Add creator to admin role
+        _setupRole(ADMIN, _msgSender());
+
+        // Set role admin for roles
+        _setRoleAdmin(ADMIN, ADMIN);
+        _setRoleAdmin(UPDATE_ALLOCATED_POOL_SHARES, ADMIN);
+
+        // Setup token
         _stakeToken = IERC20(stakeTokenAddress);
         _proofToken = IWeStakeitToken(proofTokenAddress);
     }
 
     // Emergency functions
-    function emergencyWithdraw(uint256 amount) external override onlyOwner {
+    function emergencyWithdraw(
+        uint256 amount
+    ) external override onlyRole(ADMIN) {
         super._emergencyWithdraw(amount);
     }
 
     function emergencyWithdrawToken(
         address token,
         uint256 amount
-    ) external override onlyOwner {
+    ) external override onlyRole(ADMIN) {
         super._emergencyWithdrawToken(token, amount);
     }
 
-    function setRewardsClaimInterval(uint256 value) external onlyOwner {
-        _rewardsClaimInterval = value;
-    }
-
-    function setPoolPaused(bool value) external onlyOwner {
+    function setPoolPaused(bool value) external onlyRole(ADMIN) {
         _poolPaused = value;
     }
 
-    function setAllocatedPoolShares(uint256 value) external onlyOwner {
-        _allocatedPoolShares = value;
+    function setActiveAllocatedPoolShares(
+        uint256 value
+    ) external onlyRole(UPDATE_ALLOCATED_POOL_SHARES) {
+        _activeAllocatedPoolShares = value;
+        _lastActiveAllocatedPoolSharesTimestamp = block.timestamp;
     }
 
     function apy(uint256 duration) external view returns (uint256 value) {
@@ -129,10 +145,6 @@ abstract contract BaseStakingPool is
 
     function apr(uint256 duration) external view returns (uint256 value) {
         return apr(duration, poolFactor(poolBalance()));
-    }
-
-    function rewardsClaimInterval() public view returns (uint256 value) {
-        return _rewardsClaimInterval;
     }
 
     function poolPaused() public view returns (bool value) {
@@ -149,6 +161,18 @@ abstract contract BaseStakingPool is
 
     function allocatedPoolShares() public view returns (uint256 value) {
         return _allocatedPoolShares;
+    }
+
+    function activeAllocatedPoolShares() public view returns (uint256 value) {
+        return _activeAllocatedPoolShares;
+    }
+
+    function lastActiveAllocatedPoolSharesTimestamp()
+        public
+        view
+        returns (uint256 value)
+    {
+        return _lastActiveAllocatedPoolSharesTimestamp;
     }
 
     function accRewardsPerShare() public view returns (uint256 value) {
@@ -196,7 +220,7 @@ abstract contract BaseStakingPool is
         uint256 tokenBalance = stakeToken().balanceOf(address(this));
 
         // Calculate all rewards paid or are claimable until now
-        uint256 rewardDebt = allocatedPoolShares() *
+        uint256 rewardDebt = activeAllocatedPoolShares() *
             _calculateAccRewardsPerShare(poolFactor_);
 
         // Subtract locked token and rewardDebt from actual pool balance
@@ -469,4 +493,6 @@ abstract contract BaseStakingPool is
             return (balance * 1) / 100;
         }
     }
+
+    // TODO: maybe add function to payout fees
 }

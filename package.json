@@ -9,7 +9,8 @@
     "flatten": "hardhat flatten > flattened.sol",
     "coverage": "hardhat coverage",
     "docgen": "hardhat docgen",
-    "size": "hardhat size-contracts"
+    "size": "hardhat size-contracts",
+    "abi": "hardhat export-abi"
   },
   "author": "",
   "license": "ISC",
@@ -19,6 +20,7 @@
     "@types/lodash": "^4.14.179",
     "@types/moment": "^2.13.0",
     "hardhat": "^2.8.4",
+    "hardhat-abi-exporter": "^2.10.1",
     "lodash": "^4.17.21",
     "moment": "^2.29.3"
   },

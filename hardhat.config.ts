@@ -8,6 +8,7 @@ import "hardhat-gas-reporter";
 import "solidity-coverage";
 import 'hardhat-docgen';
 import 'hardhat-contract-sizer';
+import 'hardhat-abi-exporter';
 
 dotenv.config();
 
@@ -50,11 +51,11 @@ const config: HardhatUserConfig = {
       accounts:
         process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
     },
-/**    hardhat: {
-      forking: {
-        url: process.env.BSC_GETBLOCK_URL || '',
-      }
-    }*/
+    /**    hardhat: {
+          forking: {
+            url: process.env.BSC_GETBLOCK_URL || '',
+          }
+        }*/
   },
   gasReporter: {
     enabled: process.env.REPORT_GAS !== undefined,
@@ -67,7 +68,13 @@ const config: HardhatUserConfig = {
     path: './docs',
     clear: true,
     runOnCompile: true,
-  }
+  },
+  abiExporter: [
+    {
+      path: './abi/json',
+      format: "json",
+    }
+  ]
   /**etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY,
   },*/

@@ -32,7 +32,7 @@ abstract contract BaseStakingPool is
         keccak256("UPDATE_ALLOCATED_POOL_SHARES");
 
     // Rewards in token per second
-    // Calculation: Max. rewards per year (365 days) / 31_536_000 (seconds per year)
+    // Calculation: Max. rewards per 364 days / 31_449_600 (seconds per 364 days)
     uint256 public constant TOKEN_PER_SECOND = 7654263202075702075;
 
     // Initial pool token balance
@@ -180,8 +180,8 @@ abstract contract BaseStakingPool is
     }
 
     function totalPoolShares() public pure returns (uint256 value) {
-        // Total possible shares per year (365 days)
-        // Calculation: 120_000_000 * 200.60293% (max APY) * (365/364)
+        // Total possible shares per 364 days
+        // Calculation: 120_000_000 * 200.60293 (max. APY)
         return 240_723_516 * 1e2;
     }
 

@@ -201,10 +201,7 @@ contract StakingPool is BaseStakingPool {
             return 0;
         }
 
-        if (
-            // durationInSeconds >= SECONDS_PER_DAY * maxDuration() &&
-            block.timestamp > endTimestamp
-        ) {
+        if (block.timestamp > endTimestamp) {
             // Calculate historic rewards
             rewards = _calculateHistoricRewards(
                 entry.shares,
@@ -234,8 +231,6 @@ contract StakingPool is BaseStakingPool {
             _lastRewardTimestamp = block.timestamp;
             return;
         }
-
-        // TODO: handle empty pool
 
         // Calculate global pool factor
         _currentPoolFactor = poolFactor();

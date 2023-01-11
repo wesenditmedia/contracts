@@ -477,6 +477,9 @@ describe.only("StakingPool", function () {
       const activePoolShares = (await contract.poolEntry(0)).shares
       await contract.setActiveAllocatedPoolShares(activePoolShares)
 
+      // Check state
+      expect(await contract.lastActiveAllocatedPoolSharesTimestamp()).to.equal(await getBlockTimestamp())
+
       // Skip 1 year
       await increaseToSinceStakingStart(contract, 1, 31449600 * 2)
 

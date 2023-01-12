@@ -2161,6 +2161,24 @@ describe.only("StakingPool", function () {
           contract.connect(addrs[0]).emergencyWithdrawToken(mockWsi.address, parseEther('100'))
         ).to.be.reverted
       })
+
+      it('should fail to withdraw if amount exceeds balance - locked token', async function () {
+        // Stake token
+        await mockWsi.connect(bob).approve(contract.address, parseEther('100'))
+        await contract.connect(bob).stake(
+          parseEther('1'),
+          364,
+          true
+        )
+
+        // Assert
+        expect(await mockWsi.balanceOf(contract.address)).to.equal(parseEther('101'))
+
+        // Act
+        await expect(
+          contract.connect(alice).emergencyWithdrawToken(mockWsi.address, parseEther('101'))
+        ).to.be.revertedWith('Staking Pool: Withdraw amount exceeds available balance')
+      })
     })
   })
 

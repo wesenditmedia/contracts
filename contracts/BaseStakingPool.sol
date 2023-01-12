@@ -125,6 +125,12 @@ abstract contract BaseStakingPool is
         address token,
         uint256 amount
     ) external override onlyRole(ADMIN) {
+        require(
+            amount <=
+                stakeToken().balanceOf(address(this)) - totalTokenLocked(),
+            "Staking Pool: Withdraw amount exceeds available balance"
+        );
+
         super._emergencyWithdrawToken(token, amount);
     }
 
@@ -493,6 +499,4 @@ abstract contract BaseStakingPool is
             return (balance * 1) / 100;
         }
     }
-
-    // TODO: maybe add function to payout fees
 }

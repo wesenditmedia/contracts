@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Arrays.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
 
 import "./StakingPoolSnapshot.sol";
 import "./EmergencyGuard.sol";
@@ -47,6 +48,9 @@ abstract contract BaseStakingPool is
     // Indicator, if pool is paused (no stake, no unstake, no claim)
     bool internal _poolPaused = false;
 
+    // Indicator, if user emergency unstake is enabled
+    bool internal _emergencyUnstakeEnabled = false;
+
     // Current pool factor, updated on every updatePool() call
     uint256 internal _currentPoolFactor = 100 ether;
 
@@ -67,6 +71,12 @@ abstract contract BaseStakingPool is
 
     // Total amount of locked token (excluding rewards)
     uint256 internal _totalTokenLocked;
+
+    // Amount of reserved rewards (claimed, but no unstake yet = no reduction of shares)
+    uint256 internal _reservedRewards;
+
+    // Amount of reserved fees (collected, but not withdrawn yet)
+    uint256 internal _reservedFees;
 
     // Token used for staking
     IERC20 private _stakeToken = IERC20(address(0));
@@ -134,8 +144,18 @@ abstract contract BaseStakingPool is
         super._emergencyWithdrawToken(token, amount);
     }
 
+    function withdrawFee() external onlyRole(ADMIN) {
+        stakeToken().transfer(_msgSender(), _reservedFees);
+
+        _reservedFees = 0;
+    }
+
     function setPoolPaused(bool value) external onlyRole(ADMIN) {
         _poolPaused = value;
+    }
+
+    function setEmergencyUnstakeEnabled(bool value) external onlyRole(ADMIN) {
+        _emergencyUnstakeEnabled = value;
     }
 
     function setActiveAllocatedPoolShares(
@@ -143,6 +163,18 @@ abstract contract BaseStakingPool is
     ) external onlyRole(UPDATE_ALLOCATED_POOL_SHARES) {
         _activeAllocatedPoolShares = value;
         _lastActiveAllocatedPoolSharesTimestamp = block.timestamp;
+    }
+
+    function setReservedRewards(
+        uint256 value
+    ) external onlyRole(UPDATE_ALLOCATED_POOL_SHARES) {
+        _reservedRewards = value;
+    }
+
+    function setReservedFees(
+        uint256 value
+    ) external onlyRole(UPDATE_ALLOCATED_POOL_SHARES) {
+        _reservedFees = value;
     }
 
     function apy(uint256 duration) external view returns (uint256 value) {
@@ -155,6 +187,10 @@ abstract contract BaseStakingPool is
 
     function poolPaused() public view returns (bool value) {
         return _poolPaused;
+    }
+
+    function emergencyUnstakeEnabled() public view returns (bool value) {
+        return _emergencyUnstakeEnabled;
     }
 
     function currentPoolFactor() public view returns (uint256 value) {
@@ -195,6 +231,14 @@ abstract contract BaseStakingPool is
         return _totalTokenLocked;
     }
 
+    function reservedRewards() public view returns (uint256 value) {
+        return _reservedRewards;
+    }
+
+    function reservedFees() public view returns (uint256 value) {
+        return _reservedFees;
+    }
+
     function minDuration() public pure override returns (uint256 duration) {
         return 7;
     }
@@ -225,12 +269,22 @@ abstract contract BaseStakingPool is
         // Get current pool balance
         uint256 tokenBalance = stakeToken().balanceOf(address(this));
 
+        uint256 correctedBalance = tokenBalance -
+            totalTokenLocked() +
+            reservedRewards() -
+            reservedFees();
+
         // Calculate all rewards paid or are claimable until now
         uint256 rewardDebt = activeAllocatedPoolShares() *
             _calculateAccRewardsPerShare(poolFactor_);
 
-        // Subtract locked token and rewardDebt from actual pool balance
-        return tokenBalance - totalTokenLocked() - rewardDebt;
+        // All fees
+        uint256 rewardFee = (rewardDebt * 3) / 100;
+        uint256 rewardFeeExternal = rewardFee / 2;
+
+        uint256 availableRewards = rewardDebt - rewardFeeExternal;
+
+        return correctedBalance - availableRewards;
     }
 
     function poolEntry(
@@ -350,9 +404,46 @@ abstract contract BaseStakingPool is
             "Staking Pool: Max. staking amount exceeded"
         );
 
+        require(
+            amount + _calculateUserStakingAmount(_msgSender()) <=
+                maxStakingAmount(),
+            "Staking Pool: User max. staking amount exceeded"
+        );
+
         // CHeck allowance
         uint256 allowance = stakeToken().allowance(_msgSender(), address(this));
         require(allowance >= amount, "Staking Pool: Amount exceeds allowance");
+    }
+
+    function _validateClaim(PoolEntry memory entry) internal view {
+        // Check if already unstaked
+        require(
+            entry.isUnstaked == false,
+            "Staking Pool: Staking entry was already unstaked"
+        );
+
+        // Require entry either to be non auto-compounding or already ended
+        require(
+            !entry.isAutoCompoundingEnabled ||
+                block.timestamp >=
+                (entry.startedAt + (entry.duration * SECONDS_PER_DAY)),
+            "Staking Pool: Cannot claim before staking end"
+        );
+    }
+
+    function _validateUnstake(PoolEntry memory entry) internal view {
+        // Check if already unstaked
+        require(
+            !entry.isUnstaked,
+            "Staking Pool: Staking entry was already unstaked"
+        );
+
+        // Check for staking lock period
+        require(
+            block.timestamp >=
+                entry.startedAt + (entry.duration * SECONDS_PER_DAY),
+            "Staking Pool: Staking entry is locked"
+        );
     }
 
     /**
@@ -498,5 +589,20 @@ abstract contract BaseStakingPool is
             // to (1% * pool balance) token
             return (balance * 1) / 100;
         }
+    }
+
+    function _calculateUserStakingAmount(
+        address addr
+    ) private view returns (uint256 stakingAmount) {
+        IERC721Enumerable token = IERC721Enumerable(address(proofToken()));
+        uint256 balance = token.balanceOf(addr);
+        uint256 amount = 0;
+
+        for (uint256 i = 0; i < balance; i++) {
+            uint256 tokenId = token.tokenOfOwnerByIndex(addr, i);
+            amount += _poolEntries[tokenId].amount;
+        }
+
+        return amount;
     }
 }

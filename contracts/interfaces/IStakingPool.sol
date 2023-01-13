@@ -18,6 +18,8 @@ struct PoolEntry {
     uint256 rewardDebt;
     // Amount of claimed rewards (only if no auto compounding enabled)
     uint256 claimedRewards;
+    // Amount of fees collected from rewards
+    uint256 collectedFees;
     // Timestamp of last rewards claim (only if no auto compounding enabled)
     uint256 lastClaimedAt;
     // Block timestamp of staking start

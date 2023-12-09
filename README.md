@@ -21,6 +21,7 @@ npx hardhat run --network bscTestnet scripts/deploy.ts
 | [TokenVault.sol](contracts/TokenVault.sol) | WeSendit Token Vault, used to lock token on it.
 | [MultiVestingWallet.sol](contracts/MultiVestingWallet.sol) | WeSendit Multi Vesting Wallet, used to vest token for multiple beneficiaries.
 | [PaymentProcessor.sol](contracts/PaymentProcessor.sol) | WeSendit 3.0 Payment Processor Smart Contract, used for web3 payments.
+| [RewardDistributor.sol](contracts/RewardDistributor.sol) | WeSendit 3.0 Reward Distributor Smart Contract, used for web3 activity rewards.
 
 ## Audits
 

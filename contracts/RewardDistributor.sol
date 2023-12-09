@@ -33,7 +33,7 @@ contract RewardDistributor is
         0x000000000000000000000000000000000000dEaD;
 
     // Token instance used for payments
-    IERC20 internal _token;
+    IERC20 internal immutable _token;
 
     // Claimable token amount by user
     mapping(address => uint256) internal _claimableByUser;
@@ -108,7 +108,7 @@ contract RewardDistributor is
         }
     }
 
-    function claimToken() external override {
+    function claimToken() external override nonReentrant {
         // Get claimable amount
         address user = _msgSender();
         uint256 amount = _claimableByUser[user];

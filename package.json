@@ -16,6 +16,7 @@
   "license": "ISC",
   "dependencies": {
     "@openzeppelin/contracts": "^4.8.0",
+    "@openzeppelin/subgraphs": "^0.1.8-5",
     "@prb/math": "^2.5.0",
     "@types/lodash": "^4.14.179",
     "@types/moment": "^2.13.0",
@@ -28,6 +29,7 @@
     "@defi-wonderland/smock": "^2.2.0",
     "@nomicfoundation/hardhat-chai-matchers": "^1.0.4",
     "@nomicfoundation/hardhat-network-helpers": "^1.0.6",
+    "@nomicfoundation/solidity-analyzer-linux-arm64-gnu": "^0.1.1",
     "@nomiclabs/hardhat-ethers": "^2.0.5",
     "@nomiclabs/hardhat-etherscan": "^3.0.1",
     "@nomiclabs/hardhat-waffle": "^2.0.2",

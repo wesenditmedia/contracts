@@ -23,7 +23,7 @@ contract PaymentProcessor is
     bytes32 public constant PROCESSOR = keccak256("PROCESSOR");
 
     // Token instance used for payments
-    IERC20 internal _token;
+    IERC20 internal immutable _token;
 
     // Payments by user
     mapping(address => bytes32[]) internal _paymentsByUser;
@@ -119,7 +119,7 @@ contract PaymentProcessor is
 
     function refundPayment(
         bytes32 paymentId
-    ) external override onlyRole(PROCESSOR) {
+    ) external override onlyRole(PROCESSOR) nonReentrant {
         // Get payment
         Payment memory payment = _paymentsById[paymentId];
 

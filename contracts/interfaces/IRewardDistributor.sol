@@ -68,6 +68,11 @@ interface IRewardDistributor {
     ) external view returns (uint256 timestamp);
 
     /**
+     * Returns the amount of fees collected
+     */
+    function totalFees() external view returns (uint256 amount);
+
+    /**
      * Adds claimable token for an user
      *
      * @param user address - User address

@@ -26,11 +26,11 @@ contract RewardDistributor is
     bytes32 public constant SLAYER = keccak256("SLAYER");
 
     // Duration after user token are allowed to be slayed.
-    uint256 public constant SLAY_INACTIVE_DURATION = 180 * 24 * 60 * 60; // 180 days in seconds
+    uint256 public constant SLAY_INACTIVE_DURATION = 200 * 24 * 60 * 60; // 200 days in seconds
 
-    // Burn address
-    address public constant BURN_ADDRESS =
-        0x000000000000000000000000000000000000dEaD;
+    // Fee address
+    address public constant FEE_ADDRESS =
+        0xD70E8C40003AE32b8E82AB5F25607c010532f148;
 
     // Token instance used for payments
     IERC20 internal immutable _token;
@@ -49,6 +49,9 @@ contract RewardDistributor is
 
     // Last slay timestamp by user
     mapping(address => uint256) internal _lastSlayedAtByUser;
+
+    // Total amount of fees collected
+    uint256 internal _totalFees;
 
     constructor(address tokenAddress) {
         // Add creator to admin role
@@ -93,6 +96,10 @@ contract RewardDistributor is
         return _lastSlayedAtByUser[user];
     }
 
+    function totalFees() external view override returns (uint256 amount) {
+        return _totalFees;
+    }
+
     function addTokenForUsers(
         address[] memory users,
         uint256[] memory amounts
@@ -113,9 +120,24 @@ contract RewardDistributor is
         address user = _msgSender();
         uint256 amount = _claimableByUser[user];
 
+        // Check amount
+        require(
+            amount > 0,
+            "RewardDistributor: Cannot claim token if claimable amount is zero"
+        );
+
+        // Transfer 3% fee
+        uint256 fees = (amount * 3) / 100;
+        require(
+            _token.transfer(FEE_ADDRESS, fees),
+            "RewardDistributor: Token transfer failed"
+        );
+
+        _totalFees += fees;
+
         // Send token
         require(
-            _token.transfer(user, amount),
+            _token.transfer(user, amount - fees),
             "RewardDistributor: Token transfer failed"
         );
 
@@ -171,10 +193,14 @@ contract RewardDistributor is
 
         // Get claimable token amount
         uint256 amount = _claimableByUser[user];
+        require(
+            amount > 0,
+            "RewardDistributor: Cannot slay token if claimable amount is zero"
+        );
 
         // Send token
         require(
-            _token.transfer(BURN_ADDRESS, amount),
+            _token.transfer(FEE_ADDRESS, amount),
             "RewardDistributor: Token transfer failed"
         );
 

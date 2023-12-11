@@ -20,7 +20,7 @@ const getBlockTimestamp = async () => {
 }
 
 describe.only("RewardDistributor", function () {
-  const SLAY_INACTIVE_DURATION = 180 * 24 * 60 * 60; // 180 days in seconds
+  const SLAY_INACTIVE_DURATION = 200 * 24 * 60 * 60; // 200 days in seconds
 
   let contract: RewardDistributor
   let mockToken: MockContract<MockERC20>
@@ -173,6 +173,8 @@ describe.only("RewardDistributor", function () {
       await contract.connect(processor).addTokenForUser(alice.address, parseEther('100'))
       expect(await contract.claimableToken(alice.address)).to.equal(parseEther('100'))
       expect(await contract.claimedToken(alice.address)).to.equal(0)
+      expect(await mockToken.balanceOf(alice.address)).to.equal(0)
+      expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(0)
 
       // Act
       await expect(contract.connect(alice).claimToken())
@@ -189,17 +191,23 @@ describe.only("RewardDistributor", function () {
       expect(await contract.claimedToken(alice.address)).to.equal(parseEther('100'))
       expect(await contract.lastClaimedAt(alice.address)).to.equal(blockTimestamp)
       expect(await contract.lastSlayedAt(alice.address)).to.equal(0)
+      expect(await mockToken.balanceOf(alice.address)).to.equal(parseEther('97'))
+      expect(await contract.totalFees()).to.equal(parseEther('3'));
+      expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(parseEther('3'))
     })
 
     it('should successfully claim rewards multiple times', async function () {
       // Arrange
       const amount = parseEther('100')
+      const fee = parseEther('3')
 
       // Act
       for (let i = 0; i < 2; i++) {
         await contract.connect(processor).addTokenForUser(alice.address, amount)
         expect(await contract.claimableToken(alice.address)).to.equal(amount)
         expect(await contract.claimedToken(alice.address)).to.equal(amount.mul(i))
+        expect(await mockToken.balanceOf(alice.address)).to.equal(amount.mul(i).sub(fee.mul(i)))
+        expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(fee.mul(i))
 
         await expect(contract.connect(alice).claimToken())
           .emit(contract, 'TokenClaimed')
@@ -215,6 +223,8 @@ describe.only("RewardDistributor", function () {
         expect(await contract.claimedToken(alice.address)).to.equal(amount.mul(i + 1))
         expect(await contract.lastClaimedAt(alice.address)).to.equal(blockTimestamp)
         expect(await contract.lastSlayedAt(alice.address)).to.equal(0)
+        expect(await mockToken.balanceOf(alice.address)).to.equal(amount.mul(i + 1).sub(fee.mul(i + 1)))
+        expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(fee.mul(i + 1))
       }
     })
 
@@ -224,6 +234,8 @@ describe.only("RewardDistributor", function () {
       await contract.connect(processor).addTokenForUser(alice.address, parseEther('100'))
       expect(await contract.claimableToken(alice.address)).to.equal(parseEther('200'))
       expect(await contract.claimedToken(alice.address)).to.equal(0)
+      expect(await mockToken.balanceOf(alice.address)).to.equal(0)
+      expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(0)
 
       // Act
       await expect(contract.connect(alice).claimToken())
@@ -240,6 +252,8 @@ describe.only("RewardDistributor", function () {
       expect(await contract.claimedToken(alice.address)).to.equal(parseEther('200'))
       expect(await contract.lastClaimedAt(alice.address)).to.equal(blockTimestamp)
       expect(await contract.lastSlayedAt(alice.address)).to.equal(0)
+      expect(await mockToken.balanceOf(alice.address)).to.equal(parseEther('194'))
+      expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(parseEther('6'))
     })
 
     it('should fail to claim rewards if token transfer fails', async function () {
@@ -285,7 +299,7 @@ describe.only("RewardDistributor", function () {
       expect(await contract.slayedToken(alice.address)).to.equal(parseEther('100'))
       expect(await contract.lastClaimedAt(alice.address)).to.equal(blockTimestampBefore - 1)
       expect(await contract.lastSlayedAt(alice.address)).to.equal(blockTimestampAfter)
-      expect(await mockToken.balanceOf('0x000000000000000000000000000000000000dEaD')).to.equal(parseEther('100'))
+      expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(parseEther('103'))
     })
 
     it('should successfully slay rewards if first rewards', async function () {
@@ -311,7 +325,7 @@ describe.only("RewardDistributor", function () {
       expect(await contract.slayedToken(alice.address)).to.equal(parseEther('100'))
       expect(await contract.lastClaimedAt(alice.address)).to.equal(0)
       expect(await contract.lastSlayedAt(alice.address)).to.equal(blockTimestamp)
-      expect(await mockToken.balanceOf('0x000000000000000000000000000000000000dEaD')).to.equal(parseEther('100'))
+      expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(parseEther('100'))
     })
 
     it('should successfully slay rewards for multiple users', async function () {
@@ -355,7 +369,7 @@ describe.only("RewardDistributor", function () {
       expect(await contract.lastClaimedAt(bob.address)).to.equal(0)
       expect(await contract.lastSlayedAt(bob.address)).to.equal(blockTimestamp)
 
-      expect(await mockToken.balanceOf('0x000000000000000000000000000000000000dEaD')).to.equal(parseEther('150'))
+      expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(parseEther('150'))
     })
 
     it('should fail to slay rewards if user is active', async function () {

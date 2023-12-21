@@ -12,3 +12,7 @@ flattened.sol
 
 docs
 abi
+generated
+
+scripts/*.json
+scripts/*.csv

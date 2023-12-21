@@ -7,6 +7,8 @@ import "./BaseDynamicFeeManager.sol";
 import "./interfaces/IFeeReceiver.sol";
 import "./interfaces/IWeSenditToken.sol";
 
+import "hardhat/console.sol";
+
 /**
  * @title Dynamic Fee Manager for ERC20 token
  *
@@ -134,7 +136,10 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         for (uint256 i = 0; i < feeAmount; i++) {
             FeeEntry memory fee = feeEntries[i];
 
-            if (_isFeeEntryValid(fee) && _isFeeEntryMatching(fee, from, to)) {
+            if (
+                _isFeeEntryValid(fee) &&
+                (_isFeeEntryMatching(fee, from, to, amount))
+            ) {
                 uint256 tFee = _calculateFee(amount, fee.percentage);
                 uint256 tempPercentage = totalFeePercentage + fee.percentage;
 
@@ -150,6 +155,40 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         require(tTotal > 0, "DynamicFeeManager: invalid total amount");
 
         return (tTotal, tFees);
+    }
+
+    function _isFeeMatchingStakingUnclaim(
+        FeeEntry memory fee,
+        address to,
+        uint256 amount
+    ) private view returns (bool matching) {
+        // Get users staking nfts balance
+        uint256 balance = weStakeitToken().balanceOf(to);
+
+        for (uint256 i = 0; i < balance; i++) {
+            // Get staking token id
+            uint256 tokenId = weStakeitToken().tokenOfOwnerByIndex(to, i);
+
+            // Get staking entry from pool
+            PoolEntry memory entry = stakingPool().poolEntry(tokenId);
+
+            /**
+             * Check if entry is:
+             * - unstaked (happens right before transfer)
+             * - claimed with this block (happens likely directly before transfer)
+             * - fee amount is matching 3% of initial stake amount
+             */
+            if (
+                entry.isUnstaked &&
+                entry.lastClaimedAt == block.timestamp &&
+                (amount * fee.percentage) / FEE_DIVIDER ==
+                (entry.amount * fee.percentage) / FEE_DIVIDER
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -168,8 +207,8 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
         FeeEntry memory fee,
         bool bypassSwapAndLiquify
     ) private {
-        // add to liquify / swap amount or transfer to fee destination
         if (fee.doLiquify || fee.doSwapForBusd) {
+            // add to liquify / swap amount or transfer to fee destination
             require(
                 IWeSenditToken(address(token())).transferFromNoFees(
                     from,
@@ -275,8 +314,14 @@ contract DynamicFeeManager is BaseDynamicFeeManager {
     function _isFeeEntryMatching(
         FeeEntry memory fee,
         address from,
-        address to
+        address to,
+        uint256 amount
     ) private view returns (bool matching) {
+        // Staking pool customization
+        if (fee.from == address(stakingPool())) {
+            return _isFeeMatchingStakingUnclaim(fee, to, amount);
+        }
+
         return
             ((fee.from == WHITELIST_ADDRESS &&
                 fee.to == WHITELIST_ADDRESS &&

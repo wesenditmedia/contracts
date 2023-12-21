@@ -1,6 +1,6 @@
 # <img src="https://wesendit.io/wp-content/uploads/2022/04/cropped-WSI_Favicon-192x192.png" width="20px" height="20px"></img> WeSendit Smart Contracts 🚀
 
-> This repository contains the core smart contracts used by the WeSendit crypto project.
+This repository contains a set of smart contracts used by WeSendit.
 
 ## Deployment
 
@@ -8,7 +8,7 @@
 npx hardhat run --network bscTestnet scripts/deploy.ts
 ```
 
-## Included Smart Contracts
+## Smart Contracts
 
 | Sourcefile | Description |
 |---|---|
@@ -27,5 +27,6 @@ npx hardhat run --network bscTestnet scripts/deploy.ts
 
 | Report | Audit Date | Organization |
 |---|---|---|
-| [WeSendit_SCAudit_Report_Hacken_io.pdf](WeSendit_SCAudit_Report_Hacken_io.pdf) | 20th Oct. 2022 | [Hacken](https://hacken.io)
-| [WeSendit_SCAudit_Report_Solidproof_io.pdf](WeSendit_SCAudit_Report_Solidproof_io.pdf) | 22th Oct. 2022 | [Solidproof](https://solidproof.io)
+| [WeSendit_SCAudit_Report_Hacken_io.pdf](audits/WeSendit_SCAudit_Report_Hacken_io.pdf) | 20th Oct. 2022 | [Hacken](https://hacken.io)
+| [WeSendit_SCAudit_Report_Solidproof_io.pdf](audits/WeSendit_SCAudit_Report_Solidproof_io.pdf) | 22nd Oct. 2022 | [Solidproof](https://solidproof.io)
+| [WeSendit_SCAudit_Report_Solidproof_io.pdf](audits/SmartContract_Audit_Solidproof_WesendIt_PaymentDistributor.pdf) | 21st Dec. 2022 | [Solidproof](https://solidproof.io)

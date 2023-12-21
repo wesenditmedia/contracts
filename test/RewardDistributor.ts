@@ -8,6 +8,7 @@ import { parseEther } from "ethers/lib/utils";
 import { MockContract, smock } from '@defi-wonderland/smock';
 import { emergencyGuardTests } from "./EmergencyGuard";
 import { setNextBlockTimestamp } from "@nomicfoundation/hardhat-network-helpers/dist/src/helpers/time";
+import { BigNumber } from "ethers";
 
 chai.should();
 chai.use(smock.matchers);
@@ -194,6 +195,34 @@ describe.only("RewardDistributor", function () {
       expect(await mockToken.balanceOf(alice.address)).to.equal(parseEther('97'))
       expect(await contract.totalFees()).to.equal(parseEther('3'));
       expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(parseEther('3'))
+    })
+
+    it('should successfully claim rewards (small amount)', async function () {
+      // Arrange
+      await contract.connect(processor).addTokenForUser(alice.address, BigNumber.from(200))
+      expect(await contract.claimableToken(alice.address)).to.equal(BigNumber.from(200))
+      expect(await contract.claimedToken(alice.address)).to.equal(0)
+      expect(await mockToken.balanceOf(alice.address)).to.equal(0)
+      expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(0)
+
+      // Act
+      await expect(contract.connect(alice).claimToken())
+        .emit(contract, 'TokenClaimed')
+        .withArgs(
+          alice.address,
+          BigNumber.from(200)
+        )
+
+      // Assert
+      const blockTimestamp = await getBlockTimestamp()
+
+      expect(await contract.claimableToken(alice.address)).to.equal(0)
+      expect(await contract.claimedToken(alice.address)).to.equal(BigNumber.from(200))
+      expect(await contract.lastClaimedAt(alice.address)).to.equal(blockTimestamp)
+      expect(await contract.lastSlayedAt(alice.address)).to.equal(0)
+      expect(await mockToken.balanceOf(alice.address)).to.equal(BigNumber.from(194))
+      expect(await contract.totalFees()).to.equal(BigNumber.from(6));
+      expect(await mockToken.balanceOf('0xD70E8C40003AE32b8E82AB5F25607c010532f148')).to.equal(BigNumber.from(6))
     })
 
     it('should successfully claim rewards multiple times', async function () {

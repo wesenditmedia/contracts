@@ -29,4 +29,4 @@ npx hardhat run --network bscTestnet scripts/deploy.ts
 |---|---|---|
 | [WeSendit_SCAudit_Report_Hacken_io.pdf](audits/WeSendit_SCAudit_Report_Hacken_io.pdf) | 20th Oct. 2022 | [Hacken](https://hacken.io)
 | [WeSendit_SCAudit_Report_Solidproof_io.pdf](audits/WeSendit_SCAudit_Report_Solidproof_io.pdf) | 22nd Oct. 2022 | [Solidproof](https://solidproof.io)
-| [WeSendit_SCAudit_Report_Solidproof_io.pdf](audits/SmartContract_Audit_Solidproof_WesendIt_PaymentDistributor.pdf) | 21st Dec. 2022 | [Solidproof](https://solidproof.io)
+| [SmartContract_Audit_Solidproof_WesendIt_PaymentDistributor.pdf](audits/SmartContract_Audit_Solidproof_WesendIt_PaymentDistributor.pdf) | 21st Dec. 2022 | [Solidproof](https://solidproof.io)
